@@ -1,0 +1,85 @@
+#!/bin/sh
+#
+# bsh -- Password-protected netcat or ncat shell listener
+#
+# Works with OpenBSD netcat, GNU netcat, and Nmap ncat.
+# See README for details and warnings!
+
+# ======== CONFIGURATION ========
+
+NC="nc"          # Default netcat binary; try "ncat" or "nc.openbsd" as needed
+PORT="${1:-2323}"
+PASSWORD="gimme"
+SHELL="/bin/sh"
+BINDADDR="127.0.0.1"   # safer default: localhost-only
+LOGFILE=""
+PERSIST=0              # Set to 1 for persistent listen mode
+
+# ======== INTERNAL DETECTION ========
+
+# Detect Ncat (Nmap) vs traditional nc
+if "$NC" -h 2>&1 | grep -qi nmap; then
+    IS_NCAT=1
+else
+    IS_NCAT=0
+fi
+
+if [ "$IS_NCAT" -eq 1 ]; then
+    # Nmap Ncat supports --sh-exec, --exec, -e (legacy), and -k
+    LISTEN_OPTS="-l $PORT --keep-open"
+    [ "$BINDADDR" != "0.0.0.0" ] && LISTEN_OPTS="$LISTEN_OPTS --listen $BINDADDR"
+    # Use --sh-exec for a shell command, always pass stdin to this script for password check
+    EXEC_OPTS="--sh-exec \"$0 --session\""
+    [ "$PERSIST" -eq 1 ] || LISTEN_OPTS="$LISTEN_OPTS --max-conns 1"
+else
+    # Traditional netcat (OpenBSD): -l -p PORT -s BINDADDR -e CMD
+    LISTEN_OPTS="-l -p $PORT"
+    [ "$BINDADDR" != "0.0.0.0" ] && LISTEN_OPTS="$LISTEN_OPTS -s $BINDADDR"
+    EXEC_OPTS="-e $0 --session"
+fi
+
+# ======== LISTENER LOGIC ========
+
+launch_listener() {
+    echo "[$$] [*] Launching listener on $BINDADDR:$PORT (using $NC)"
+    if [ "$IS_NCAT" -eq 1 ]; then
+        eval "$NC $LISTEN_OPTS $EXEC_OPTS" &
+    else
+        $NC $LISTEN_OPTS $EXEC_OPTS > /dev/null 2>&1 &
+    fi
+    echo "[$$] [*] Listener launched on $BINDADDR:$PORT"
+}
+
+# If launched as "session" (by exec), run password logic, else relaunch listener and exit
+if [ "$1" = "--session" ]; then
+    # Immediately relaunch listener for the next connection unless in persistent mode
+    [ "$PERSIST" -eq 0 ] && "$0" "$PORT" &
+    if [ -n "$LOGFILE" ]; then
+        echo "[$$] [*] Connection received at $(date)" >> "$LOGFILE"
+    fi
+
+    echo "Welcome to netcat shell! Please enter password:"
+    if command -v stty >/dev/null 2>&1; then
+        stty -echo
+        read -r USERPASS
+        stty echo
+        echo
+    else
+        read -r USERPASS
+    fi
+
+    if [ "$USERPASS" = "$PASSWORD" ]; then
+        echo "Access granted. You are in a shell. Type 'exit' to quit."
+        cd /
+        exec "$SHELL" -i
+    else
+        echo "Access denied."
+        sleep 1
+        exit 1
+    fi
+    exit 0
+fi
+
+# If not --session, launch listener
+launch_listener
+exit 0

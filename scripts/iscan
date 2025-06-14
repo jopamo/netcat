@@ -1,0 +1,68 @@
+#!/bin/sh
+#
+# iscan - Simple script to probe identd for user<->daemon mappings on remote host
+#
+# Usage:
+#   ./ident-scan.sh HOST PORT [PORT ...]
+#
+# - For each PORT, attempts to connect from a random high source port,
+#   then queries the remote host's identd (port 113) to see what user owns the daemon.
+# - Compatible with both classic netcat (nc) and ncat (Nmap).
+#
+# WARNING: This only works if the target host is running identd and allows such queries.
+#
+
+NC="nc" # Or set to "ncat" if needed
+
+if [ -z "$2" ]; then
+    echo "Usage: $0 HOST PORT [PORT ...]" >&2
+    exit 1
+fi
+
+HOST="$1"
+shift
+
+# Ping host's identd first
+if ! $NC -z -w 9 "$HOST" 113 2>/dev/null; then
+    echo "[$HOST] isn't running identd (port 113)" >&2
+    exit 0
+fi
+
+# Generate random high base port
+BASEPORT=$(( ($$ % 999) + 31337 ))
+RP=$BASEPORT
+
+# Detect Ncat
+if $NC -h 2>&1 | grep -qi nmap; then
+    IS_NCAT=1
+else
+    IS_NCAT=0
+fi
+
+while [ "$1" ]; do
+    PORT="$1"
+    # Launch fake client from chosen source port to daemon port (background)
+    if [ "$IS_NCAT" -eq 1 ]; then
+        $NC --source-port "$RP" --send-only -w 8 "$HOST" "$PORT" < /dev/null > /dev/null &
+    else
+        $NC -v -w 8 -p "$RP" "$HOST" "$PORT" < /dev/null > /dev/null &
+    fi
+    PROC=$!
+    sleep 3
+
+    # Query identd for connection mapping
+    # The identd request is "<PORT>,<RP>\r\n"
+    # Some identds need CRLF, some work with just LF
+    REQ="${PORT},${RP}"
+    if [ "$IS_NCAT" -eq 1 ]; then
+        echo "$REQ" | $NC --recv-only -w 4 "$HOST" 113 2>&1
+    else
+        echo "$REQ" | $NC -w 4 -r "$HOST" 113 2>&1
+    fi
+
+    sleep 2
+    kill -HUP $PROC 2>/dev/null
+
+    RP=$((RP + 1))
+    shift
+done

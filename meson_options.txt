@@ -1,0 +1,19 @@
+option('ipv6',
+       type : 'boolean',
+       value: true,
+       description: 'Compile with IPv6 support (-DINET6)')
+
+option('telnet',
+       type : 'boolean',
+       value: true,
+       description: 'Answer TELNET negotiation (-DTELNET)')
+
+option('verbose_debug',
+       type : 'boolean',
+       value: false,
+       description: 'Enable extra DEBUG output (-DDEBUG)')
+
+option('exec_hole',
+       type : 'boolean',
+       value: false,
+       description: 'Compile the dangerous -e/-c exec feature (-DGAPING_SECURITY_HOLE)')

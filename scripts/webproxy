@@ -1,0 +1,121 @@
+#!/bin/sh
+#
+# webproxy.sh - Minimal HTTP GET proxy with IP filtering and logging (for testing/CTF)
+#
+# Usage:
+#   ./webproxy.sh clienthost
+#     (clienthost = hostname or IP allowed to use the proxy)
+#
+#   ./webproxy.sh reset
+#     (clean up and terminate listener)
+#
+# Features:
+#   - Listens on $PORT (default: 8000)
+#   - Accepts connections only from $CLIENT
+#   - Logs all GET queries to $LFILE
+#   - Only handles HTTP GET (not POST/PUT/etc)
+#   - Compatible with nc and ncat (Nmap)
+#   - Refuses Netscape servers for fun :)
+#
+
+PORT=8000
+LFILE="${0}.log"
+CFILE="${0}.conn"
+XNC=""
+
+NC="nc"
+if $NC -h 2>&1 | grep -qi nmap; then
+    IS_NCAT=1
+else
+    IS_NCAT=0
+fi
+
+# --- Function: launch listener ---
+launch_listener() {
+    if [ "$IS_NCAT" -eq 1 ]; then
+        $NC -l $PORT --sh-exec "$0 handler $CLIENT" $XNC < /dev/null > /dev/null 2> "$CFILE" &
+    else
+        $NC -w 600 -n -l -p $PORT -e "$0 handler $CLIENT" $XNC < /dev/null > /dev/null 2> "$CFILE" &
+    fi
+}
+
+# --- Function: reset proxy ---
+reset_proxy() {
+    rm -f "$LFILE"
+    [ -f "$CFILE" ] && rm -f "$CFILE"
+    $NC -w 1 -n 127.0.0.1 $PORT < /dev/null > /dev/null 2>&1
+    exit 0
+}
+
+# --- Top-level argument/launch logic ---
+if [ "$1" = "reset" ]; then
+    reset_proxy
+fi
+
+if [ -z "$1" ] && [ -z "$CLIENT" ]; then
+    echo "Usage: $0 clienthost"
+    exit 1
+fi
+
+if [ "$1" = "handler" ]; then
+    # Handler for a single connection (called by nc/ncat)
+    shift
+    CLIENT="$1"
+    # Accept from correct client only
+    REMOTE_IP=$( (netstat -tn 2>/dev/null || ss -tn 2>/dev/null) | awk "/:$PORT / && /ESTABLISHED/ {print \$5}" | cut -d: -f1 | head -n 1 )
+    [ -z "$REMOTE_IP" ] && REMOTE_IP="unknown"
+    if ! $NC -z -w 1 "$CLIENT" $PORT 2>/dev/null; then
+        echo "Access from $REMOTE_IP denied (expected $CLIENT)" >&2
+        exit 1
+    fi
+    # Read HTTP GET request and log it
+    read x1 x2 x3 x4
+    echo "=== query: $x1 $x2 $x3 $x4" >> "$LFILE"
+    [ "$x4" ] && echo "extra junk after request: $x4" >> "$LFILE"
+    # Sanitize and split up the request
+    hurl=$(echo "$x2" | sed -e "s+.*//++" -e 's+[\`'\''|$;<>{}\\!*()\"]++g')
+    hh=$(echo "$hurl" | sed -e "s+/.*++" -e "s+:.*++")
+    hp=$(echo "$hurl" | sed -e "s+.*:++" -e "s+/.*++")
+    [ "$hp" = "$hh" ] && hp=80
+    hf=$(echo "$hurl" | sed -e "s+[^/]*++")
+    # Log full request
+    if [ "$x3" ]; then
+        while read xx; do
+            echo "${xx}" >> "$LFILE"
+            [ -z "$xx" ] && break
+            [ "$xx" = "
+" ] && break
+        done
+    fi
+    [ "$x1" != "GET" ] && echo "sorry, this proxy only does GETs" && exit 0
+    echo "$hh" | grep -iq netscap && echo "access to Netscam's servers <b>DENIED.</b>" && exit 0
+    # Relay the GET request
+    echo "$x1 $hf" | $NC -w 30 "$hh" "$hp" 2>/dev/null || \
+        echo "oops, can't get to $hh : $hp."
+    echo "sent \"$x1 $hf\" to $hh : $hp" >> "$LFILE"
+    exit 0
+fi
+
+if [ "$1" ]; then
+    # Initial launch: set up client, run listener, log
+    umask 077
+    CLIENT="$1"
+    export CLIENT
+    [ -z "$CFILE" ] && CFILE=/dev/null
+    touch "$CFILE"
+    if [ -f "$CFILE" ]; then
+        echo "Last connection results:"
+        cat "$CFILE"
+    fi
+    CLIENT_IP=$($NC -z -v -w 8 "$CLIENT" 22000 2>&1 | sed 's/.*\[\(..*\)\].*/\1/')
+    [ -z "$CLIENT_IP" ] && CLIENT_IP="$CLIENT"
+    echo "=== Launch: $CLIENT_IP" >> "$LFILE"
+    echo "Proxy running -- will accept connections on $PORT from $CLIENT_IP"
+    echo "  Logging queries to $LFILE"
+    [ -f "$CFILE" ] && echo "  and connection issues to $CFILE"
+    launch_listener
+    exit 0
+fi
+
+# This point should not be reached
+exit 1
