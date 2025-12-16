@@ -5,3 +5,5 @@ core
 /netcat
 
 /*.tar.*
+
+build*

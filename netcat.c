@@ -71,6 +71,7 @@
 #include <netdb.h>            /* hostent, gethostby*, getservby* */
 #include <arpa/inet.h>        /* inet_ntoa */
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h> /* strcpy, strchr, yadda yadda */
 #include <errno.h>
 #include <signal.h>
@@ -102,9 +103,9 @@
 #endif
 #define MAXHOSTNAMELEN 256
 
-#ifndef HAVE_SOCKLEN_T
+/* #ifndef HAVE_SOCKLEN_T
 #define socklen_t int
-#endif
+#endif */
 
 #ifdef HAVE_SIGSETJMP
 #define jmp_buf sigjmp_buf
@@ -220,19 +221,17 @@ int o_quit = -1; /* 0 == quit-now; >0 == quit after o_quit seconds */
    fake varargs -- need to do this way because we wind up calling through
    more levels of indirection than vanilla varargs can handle, and not all
    machines have vfprintf/vsyslog/whatever!  6 params oughta be enough. */
-void holler(str, p1, p2, p3, p4, p5, p6) char* str;
-char *p1, *p2, *p3, *p4, *p5, *p6;
-{
+static void holler_v(char* str, va_list args) {
     FILE* o_holler_out = (o_holler_stderr ? stderr : stdout);
     if (o_verbose) {
-        fprintf(o_holler_out, str, p1, p2, p3, p4, p5, p6);
+        vfprintf(o_holler_out, str, args);
 #ifdef HAVE_BIND
         if (h_errno) {       /* if host-lookup variety of error ... */
             if (h_errno > 4) /* oh no you don't, either */
                 fprintf(o_holler_out, "preposterous h_errno: %d", h_errno);
             else
-                fprintf(o_holler_out, h_errs[h_errno]); /* handle it here */
-            h_errno = 0;                                /* and reset for next call */
+                fprintf(o_holler_out, "%s", h_errs[h_errno]); /* handle it here */
+            h_errno = 0;                                      /* and reset for next call */
         }
 #endif
         if (errno) {     /* this gives funny-looking messages, but */
@@ -242,22 +241,30 @@ char *p1, *p2, *p3, *p4, *p5, *p6;
             fprintf(o_holler_out, "\n");
         fflush(o_holler_out);
     }
+}
+
+void holler(char* str, ...) {
+    va_list args;
+    va_start(args, str);
+    holler_v(str, args);
+    va_end(args);
 } /* holler */
 
 /* bail :
    error-exit handler, callable from anywhere */
-void bail(str, p1, p2, p3, p4, p5, p6) char* str;
-char *p1, *p2, *p3, *p4, *p5, *p6;
-{
+void bail(char* str, ...) {
+    va_list args;
     o_verbose = 1;
-    holler(str, p1, p2, p3, p4, p5, p6);
+    va_start(args, str);
+    holler_v(str, args);
+    va_end(args);
     close(netfd);
     exit(1);
 } /* bail */
 
 /* catch :
    no-brainer interrupt handler */
-void catch () {
+void catch() {
     errno = 0;
     if (o_verbose > 1) /* normally we don't care */
         bail(wrote_txt, wrote_net, wrote_out);
@@ -770,7 +777,8 @@ USHORT lp;
 {
     register int nnetfd;
     register int rr;
-    int x, y;
+    socklen_t x;
+    int y;
     errno = 0;
 
 /* grab a socket; set opts */
@@ -894,7 +902,7 @@ newskt:
             *opp++ = (char)(((gatesidx + 1) * sizeof(IA)) + 3) & 0xff; /* length */
             *opp++ = gatesptr;                                         /* pointer */
             /* opp now points at first hop addr -- insert the intermediate gateways */
-            for (x = 0; x < gatesidx; x++) {
+            for (x = 0; x < (socklen_t)gatesidx; x++) {
                 memcpy(opp, gates[x]->iaddrs, sizeof(IA));
                 opp += sizeof(IA);
             }
@@ -905,7 +913,7 @@ newskt:
         } /* if empty optbuf */
         /* calculate length of whole option mess, which is (3 + [hops] + [final] + 1),
            and apply it [have to do this every time through, of course] */
-        x = ((gatesidx + 1) * sizeof(IA)) + 4;
+        x = ((socklen_t)gatesidx + 1) * sizeof(IA) + 4;
         rr = setsockopt(nnetfd, IPPROTO_IP, IP_OPTIONS, optbuf, x);
         if (rr == -1)
             bail("srcrt setsockopt fuxored");
@@ -1168,7 +1176,8 @@ USHORT lp;
 {
     register int nnetfd;
     register int rr;
-    int x, y;
+    socklen_t x;
+    int y;
     errno = 0;
 
 /* grab a socket; set opts */
@@ -1676,8 +1685,8 @@ int fd;
                 np = bigbuf_net;
 #ifdef TELNET
                 if (o_tn)
-                    atelnet(np, rr); /* fake out telnet stuff */
-#endif                               /* TELNET */
+                    atelnet((unsigned char*)np, rr); /* fake out telnet stuff */
+#endif                                               /* TELNET */
             } /* if rr */
             Debug(("got %d from the net, errno %d", rr, errno))
         } /* net:ding */

@@ -1,7 +1,7 @@
 option('ipv6',
-       type : 'boolean',
-       value: true,
-       description: 'Compile with IPv6 support (-DINET6)')
+       type : 'feature',
+       value: 'disabled',
+       description: 'Enable IPv6 support')
 
 option('telnet',
        type : 'boolean',

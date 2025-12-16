@@ -4,7 +4,7 @@ cc = meson.get_compiler('c')
 
 add_project_arguments('-D_GNU_SOURCE', '-DHAVE_BIND', '-DHAVE_HELP', language:'c')
 
-if get_option('ipv6')
+if get_option('ipv6').enabled()
   add_project_arguments('-DINET6', language:'c')
 endif
 if get_option('telnet')
@@ -27,12 +27,48 @@ if libm.found()
   deps += libm
 endif
 
+# IPv6 detection and config.h generation
+ipv6_opt = get_option('ipv6')
+have_inet6 = cc.has_header('netinet/in.h') and cc.has_header('arpa/inet.h')
+
+ipv6_enabled = false
+if ipv6_opt.enabled()
+  if have_inet6
+    ipv6_enabled = true
+  else
+    error('ipv6 enabled but required headers not found')
+  endif
+elif ipv6_opt.auto()
+  if have_inet6
+    ipv6_enabled = true
+  endif
+endif
+
+conf = configuration_data()
+conf.set10('NC_ENABLE_IPV6', ipv6_enabled)
+configure_file(output: 'config.h', configuration: conf)
+
 executable(
   'nc',
   'netcat.c',
   include_directories: include_directories('.'),
   dependencies: deps,
   install: true
+)
+
+executable(
+  'nc-modern',
+  'src/main.c',
+  'src/nc_ctx.c',
+  'src/resolve.c',
+  'src/connect.c',
+  'src/io_pump.c',
+  'src/telnet.c',
+  'src/exec.c',
+  'src/hexdump.c',
+  include_directories: [include_directories('.'), include_directories('src')],
+  dependencies: deps,
+  install: false
 )
 
 scripts = files(
