@@ -51,6 +51,14 @@ test('cli_interval_pacing',
      python3,
      args: [files('cli_interval_pacing.py'), nc_bin.full_path()],
      should_fail: false)
+test('cli_udp_interval_pacing',
+     python3,
+     args: [files('cli_udp_interval_pacing.py'), nc_bin.full_path()],
+     should_fail: false)
+test('cli_quit_after_eof',
+     python3,
+     args: [files('cli_quit_after_eof.py'), nc_bin.full_path()],
+     should_fail: false)
 
 if not ipv6_enabled
   test('cli_rejects_ipv6_flag_when_disabled',
