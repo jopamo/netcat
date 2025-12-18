@@ -58,6 +58,9 @@ struct nc_ctx {
     const char* exec_prog;
     bool exec_use_sh;
     bool exec_close_fds;
+    bool exec_reset_signals;
+    char** exec_argv;
+    int exec_argc;
 
     // Port scanning state
     bool single_mode;        // original Single flag (true = single port)

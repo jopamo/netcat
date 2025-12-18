@@ -68,6 +68,32 @@ test('cli_documents_removed_source_routing',
      args: [files('doc_source_routing_removed.py'), nc_bin.full_path()],
      should_fail: false)
 
+if get_option('exec_hole')
+  exec_helper = executable(
+    'exec_helper',
+    ['exec_helper.c'],
+    include_directories: test_includes,
+    dependencies: deps,
+  )
+
+  test('cli_exec_argv',
+       python3,
+       args: [files('cli_exec_features.py'), nc_bin.full_path(), exec_helper.full_path(), '--case', 'exec-argv'],
+       should_fail: false)
+  test('cli_exec_closes_extra_fds',
+       python3,
+       args: [files('cli_exec_features.py'), nc_bin.full_path(), exec_helper.full_path(), '--case', 'close-fds'],
+       should_fail: false)
+  test('cli_exec_inherit_fds',
+       python3,
+       args: [files('cli_exec_features.py'), nc_bin.full_path(), exec_helper.full_path(), '--case', 'inherit-fds'],
+       should_fail: false)
+  test('cli_exec_reset_signals',
+       python3,
+       args: [files('cli_exec_features.py'), nc_bin.full_path(), exec_helper.full_path(), '--case', 'reset-signals'],
+       should_fail: false)
+endif
+
 if not ipv6_enabled
   test('cli_rejects_ipv6_flag_when_disabled',
        python3,

@@ -36,6 +36,9 @@ void nc_ctx_init(struct nc_ctx* ctx) {
     ctx->exec_prog = NULL;
     ctx->exec_use_sh = false;
     ctx->exec_close_fds = true;
+    ctx->exec_reset_signals = false;
+    ctx->exec_argv = NULL;
+    ctx->exec_argc = 0;
     ctx->single_mode = true;  // original Single = 1
     ctx->insaved = 0;
     ctx->loport = 0;
@@ -91,6 +94,15 @@ void nc_ctx_cleanup(struct nc_ctx* ctx) {
     if (ctx->hexdump_fd > 0) {
         close(ctx->hexdump_fd);
         ctx->hexdump_fd = 0;
+    }
+    if (ctx->exec_argv) {
+        for (int i = 0; i < ctx->exec_argc; i++) {
+            free(ctx->exec_argv[i]);
+        }
+        free(ctx->exec_argv);
+        ctx->exec_argv = NULL;
+        ctx->exec_argc = 0;
+        ctx->exec_prog = NULL;
     }
 }
 

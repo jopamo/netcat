@@ -46,6 +46,8 @@ Feature flags: `-Dipv6=enabled|disabled|auto`, `-Dtelnet=true|false`, `-Dverbose
 - `-b` Allow broadcast (UDP): `echo hi | nc -u -b 255.255.255.255 9999`
 - `-c cmd` Exec via `/bin/sh` (requires `-Dexec_hole=true`): `nc -c 'echo hi' example.com 80`
 - `-e prog` Exec program (requires `-Dexec_hole=true`): `nc -e /usr/bin/id example.com 80`
+- `--sh-exec cmd` Exec via `/bin/sh -c` with a long option (requires `-Dexec_hole=true`): `nc --sh-exec 'echo hi' example.com 80`
+- `--exec-argv prog [args...]` Exec program with an argv vector (requires `-Dexec_hole=true`): `nc -l -p 9999 --exec-argv /usr/bin/printf 'hi\\n'`
 - `-h` Help banner: `nc -h`
 - `-i secs` Delay between sends/scans: `nc -i 2 -v -z target 20-30`
 - `-l` Listen mode: `nc -l -p 1234`
@@ -64,9 +66,10 @@ Feature flags: `-Dipv6=enabled|disabled|auto`, `-Dtelnet=true|false`, `-Dverbose
 ## Extensions
 
 - Exec modes close all file descriptors except stdin/stdout/stderr before launching the child; use `--exec-inherit-fds` (requires `-Dexec_hole=true`) to keep inherited descriptors when you explicitly need them.
+- `--exec-argv` uses `execv` to pass an argv array directly, while `--sh-exec` is the long-form alias for `-c`.
+- `--exec-reset-signals` restores default signal dispositions and unblocks signals before handing off to the exec target.
 
 ## Notes
 
 - Hex dumps with `-o` disable when exec-after-connect is requested (`-e`/`-c`) for safety.
-- If no args are given, `nc` reads a command line from stdin (mirrors historical behavior).
 - IPv6 support depends on headers present and the Meson `ipv6` feature switch.

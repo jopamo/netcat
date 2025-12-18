@@ -21,12 +21,63 @@
 
 static struct nc_ctx* g_ctx = NULL;
 
-enum { OPT_EXEC_INHERIT_FDS = 1000 };
+enum { OPT_EXEC_INHERIT_FDS = 1000, OPT_EXEC_ARGV, OPT_SH_EXEC, OPT_EXEC_RESET_SIGNALS };
 
 static const struct option long_options[] = {
     {"exec-inherit-fds", no_argument, NULL, OPT_EXEC_INHERIT_FDS},
+    {"exec-argv", required_argument, NULL, OPT_EXEC_ARGV},
+    {"sh-exec", required_argument, NULL, OPT_SH_EXEC},
+    {"exec-reset-signals", no_argument, NULL, OPT_EXEC_RESET_SIGNALS},
     {0, 0, 0, 0},
 };
+
+#ifdef GAPING_SECURITY_HOLE
+static void ensure_no_other_exec(struct nc_ctx* ctx) {
+    if (ctx->exec_prog || ctx->exec_argv)
+        nc_bail(ctx, "Only one exec mode can be specified");
+}
+
+static void set_exec_argv(struct nc_ctx* ctx, int argc, char** argv, const char* first) {
+    ensure_no_other_exec(ctx);
+    if (!first || first[0] == '\0')
+        nc_bail(ctx, "Exec program is required");
+
+    int start = optind;
+    int end = argc;
+    for (int i = start; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) {
+            end = i;
+            break;
+        }
+    }
+
+    int extra = end - start;
+    int total = extra + 1;
+
+    ctx->exec_argv = calloc((size_t)total + 1, sizeof(char*));
+    if (!ctx->exec_argv)
+        nc_bail(ctx, "Failed to allocate exec argv");
+
+    ctx->exec_argc = total;
+    ctx->exec_argv[0] = strdup(first);
+    if (!ctx->exec_argv[0])
+        nc_bail(ctx, "Failed to copy exec argv entry");
+
+    for (int i = 0; i < extra; i++) {
+        ctx->exec_argv[i + 1] = strdup(argv[start + i]);
+        if (!ctx->exec_argv[i + 1])
+            nc_bail(ctx, "Failed to copy exec argv entry");
+    }
+
+    ctx->exec_prog = ctx->exec_argv[0];
+    ctx->exec_use_sh = false;
+
+    if (end < argc)
+        optind = end + 1;
+    else
+        optind = argc;
+}
+#endif
 
 static void handle_term(int sig) {
     if (g_ctx) {
@@ -72,7 +123,10 @@ static void show_help(struct nc_ctx* ctx) {
 #ifdef GAPING_SECURITY_HOLE
     nc_holler(ctx, "  -c cmd           Execute shell command [DANGEROUS]");
     nc_holler(ctx, "  -e prog          Execute program [DANGEROUS]");
+    nc_holler(ctx, "      --sh-exec cmd        Execute shell command [DANGEROUS]");
+    nc_holler(ctx, "      --exec-argv prog [args...]  Execute program with argv [DANGEROUS]");
     nc_holler(ctx, "      --exec-inherit-fds  Disable exec close-fd hardening");
+    nc_holler(ctx, "      --exec-reset-signals  Reset signal handlers before exec");
 #endif
     nc_holler(ctx, "  -h               This help text");
     nc_holler(ctx, "  -i secs          Delay interval for lines sent");
@@ -182,7 +236,7 @@ static int run_listen(struct nc_ctx* ctx, int argc, char** argv, int argi) {
     }
 
 #ifdef GAPING_SECURITY_HOLE
-    if (ctx->exec_prog) {
+    if (ctx->exec_prog || ctx->exec_argv) {
         nc_exec_after_connect(ctx, fd);
     }
 #endif
@@ -286,7 +340,7 @@ static int run_connect(struct nc_ctx* ctx, int argc, char** argv, int argi) {
                     }
 
 #ifdef GAPING_SECURITY_HOLE
-                    if (ctx->exec_prog) {
+                    if (ctx->exec_prog || ctx->exec_argv) {
                         nc_exec_after_connect(ctx, fd);
                     }
 #endif
@@ -339,6 +393,7 @@ int main(int argc, char** argv) {
 
     int opt;
     opterr = 0;
+    bool stop_parsing_opts = false;
 
     while ((opt = getopt_long(argc, argv, "46abc:e:hi:lno:p:q:rs:tuvw:z", long_options, NULL)) != -1) {
         switch (opt) {
@@ -360,16 +415,33 @@ int main(int argc, char** argv) {
                 break;
 #ifdef GAPING_SECURITY_HOLE
             case 'c':
+                ensure_no_other_exec(&ctx);
                 ctx.exec_prog = optarg;
                 ctx.exec_use_sh = true;
                 break;
             case 'e':
+                ensure_no_other_exec(&ctx);
                 ctx.exec_prog = optarg;
                 ctx.exec_use_sh = false;
+                break;
+            case OPT_EXEC_ARGV:
+                set_exec_argv(&ctx, argc, argv, optarg);
+                stop_parsing_opts = true;
+                break;
+            case OPT_SH_EXEC:
+                ensure_no_other_exec(&ctx);
+                ctx.exec_prog = optarg;
+                ctx.exec_use_sh = true;
+                break;
+            case OPT_EXEC_RESET_SIGNALS:
+                ctx.exec_reset_signals = true;
                 break;
 #else
             case 'c':
             case 'e':
+            case OPT_EXEC_ARGV:
+            case OPT_SH_EXEC:
+            case OPT_EXEC_RESET_SIGNALS:
                 nc_bail(&ctx, "Exec feature (-e/-c) not enabled at compile time");
                 break;
 #endif
@@ -438,7 +510,7 @@ int main(int argc, char** argv) {
 #ifdef GAPING_SECURITY_HOLE
                 ctx.exec_close_fds = false;
 #else
-                nc_bail(&ctx, "--exec-inherit-fds requires exec support (-Dexec_hole=true)");
+                nc_bail(&ctx, "Exec feature (-e/-c) not enabled at compile time");
 #endif
                 break;
             case '?':
@@ -456,6 +528,9 @@ int main(int argc, char** argv) {
             default:
                 nc_bail(&ctx, "Unknown error in option parsing");
         }
+
+        if (stop_parsing_opts)
+            break;
     }
 
 #ifdef GAPING_SECURITY_HOLE
