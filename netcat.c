@@ -58,6 +58,7 @@
 #include <unistd.h>
 
 #include "atomicio.h"
+#include "openbsd_compat.h"
 
 #define PORT_MAX 65535
 #define UNIX_DG_TMP_SOCKET_SIZE 19
@@ -1647,7 +1648,7 @@ void save_peer_cert(struct tls* tls_ctx, FILE* fp) {
     const char* pem;
     size_t plen;
 
-    if ((pem = tls_peer_cert_chain_pem(tls_ctx, &plen)) == NULL)
+    if ((pem = (const char*)tls_peer_cert_chain_pem(tls_ctx, &plen)) == NULL)
         errx(1, "Can't get peer certificate");
     if (fprintf(fp, "%.*s", (int)plen, pem) < 0)
         err(1, "unable to save peer cert");

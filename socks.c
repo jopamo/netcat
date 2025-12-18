@@ -38,7 +38,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <resolv.h>
+#if defined(HAVE_BSD_READPASSPHRASE_H)
+#include <bsd/readpassphrase.h>
+#else
 #include <readpassphrase.h>
+#endif
 #include "atomicio.h"
 
 #define SOCKS_PORT "1080"
@@ -310,7 +314,7 @@ again:
         wlen = 9;
         if (socksv == 44) {
             /* SOCKS4A has nul-terminated hostname after user */
-            if (strlcpy(buf + 9, host, sizeof(buf) - 9) >= sizeof(buf) - 9)
+            if (strlcpy((char*)buf + 9, host, sizeof(buf) - 9) >= sizeof(buf) - 9)
                 errx(1, "hostname too big");
             wlen = 9 + strlen(host) + 1;
         }
@@ -334,17 +338,17 @@ again:
 
         /* Try to be sane about numeric IPv6 addresses */
         if (strchr(host, ':') != NULL) {
-            r = snprintf(buf, sizeof(buf), "CONNECT [%s]:%d HTTP/1.0\r\n", host, ntohs(serverport));
+            r = snprintf((char*)buf, sizeof(buf), "CONNECT [%s]:%d HTTP/1.0\r\n", host, ntohs(serverport));
         }
         else {
-            r = snprintf(buf, sizeof(buf), "CONNECT %s:%d HTTP/1.0\r\n", host, ntohs(serverport));
+            r = snprintf((char*)buf, sizeof(buf), "CONNECT %s:%d HTTP/1.0\r\n", host, ntohs(serverport));
         }
         if (r < 0 || (size_t)r >= sizeof(buf))
             errx(1, "hostname too long");
-        r = strlen(buf);
+        r = strlen((char*)buf);
 
         cnt = atomicio(vwrite, proxyfd, buf, r);
-        if (cnt != r)
+        if (cnt != (size_t)r)
             err(1, "write failed (%zu/%d)", cnt, r);
 
         if (authretry > 1) {
@@ -352,18 +356,18 @@ again:
             char resp[1024];
 
             getproxypass(proxyuser, proxyhost, proxypass, sizeof proxypass);
-            r = snprintf(buf, sizeof(buf), "%s:%s", proxyuser, proxypass);
+            r = snprintf((char*)buf, sizeof(buf), "%s:%s", proxyuser, proxypass);
             explicit_bzero(proxypass, sizeof proxypass);
-            if (r == -1 || (size_t)r >= sizeof(buf) || b64_ntop(buf, strlen(buf), resp, sizeof(resp)) == -1)
+            if (r == -1 || (size_t)r >= sizeof(buf) || b64_ntop(buf, strlen((char*)buf), resp, sizeof(resp)) == -1)
                 errx(1, "Proxy username/password too long");
-            r = snprintf(buf, sizeof(buf),
+            r = snprintf((char*)buf, sizeof(buf),
                          "Proxy-Authorization: "
                          "Basic %s\r\n",
                          resp);
             if (r < 0 || (size_t)r >= sizeof(buf))
                 errx(1, "Proxy auth response too long");
-            r = strlen(buf);
-            if ((cnt = atomicio(vwrite, proxyfd, buf, r)) != r)
+            r = strlen((char*)buf);
+            if ((cnt = atomicio(vwrite, proxyfd, buf, r)) != (size_t)r)
                 err(1, "write failed (%zu/%d)", cnt, r);
             explicit_bzero(proxypass, sizeof proxypass);
             explicit_bzero(buf, sizeof buf);
@@ -374,8 +378,9 @@ again:
             err(1, "write failed (%zu/2)", cnt);
 
         /* Read status reply */
-        proxy_read_line(proxyfd, buf, sizeof(buf));
-        if (proxyuser != NULL && (strncmp(buf, "HTTP/1.0 407 ", 13) == 0 || strncmp(buf, "HTTP/1.1 407 ", 13) == 0)) {
+        proxy_read_line(proxyfd, (char*)buf, sizeof(buf));
+        if (proxyuser != NULL &&
+            (strncmp((char*)buf, "HTTP/1.0 407 ", 13) == 0 || strncmp((char*)buf, "HTTP/1.1 407 ", 13) == 0)) {
             if (authretry > 1) {
                 fprintf(stderr,
                         "Proxy authentication "
@@ -384,12 +389,12 @@ again:
             close(proxyfd);
             goto again;
         }
-        else if (strncmp(buf, "HTTP/1.0 200 ", 13) != 0 && strncmp(buf, "HTTP/1.1 200 ", 13) != 0)
-            errx(1, "Proxy error: \"%s\"", buf);
+        else if (strncmp((char*)buf, "HTTP/1.0 200 ", 13) != 0 && strncmp((char*)buf, "HTTP/1.1 200 ", 13) != 0)
+            errx(1, "Proxy error: \"%s\"", (char*)buf);
 
         /* Headers continue until we hit an empty line */
         for (r = 0; r < HTTP_MAXHDRS; r++) {
-            proxy_read_line(proxyfd, buf, sizeof(buf));
+            proxy_read_line(proxyfd, (char*)buf, sizeof(buf));
             if (*buf == '\0')
                 break;
         }
