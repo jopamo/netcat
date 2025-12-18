@@ -27,6 +27,19 @@ io_pump_test = executable(
 )
 test('io_pump_bidirectional_transfer', io_pump_test)
 
+udp_listen_test = executable(
+  'udp_listen_test',
+  ['udp_listen_test.c', '../src/connect.c', '../src/resolve.c', '../src/nc_ctx.c'],
+  include_directories: test_includes,
+  dependencies: deps,
+)
+test('udp_accept_and_lock_peer', udp_listen_test)
+
+test('cli_tcp_loopback',
+     python3,
+     args: [files('cli_tcp_loopback.py'), nc_bin.full_path()],
+     should_fail: false)
+
 if not ipv6_enabled
   test('cli_rejects_ipv6_flag_when_disabled',
        python3,

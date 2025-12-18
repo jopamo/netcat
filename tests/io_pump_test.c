@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -75,7 +76,112 @@ static void test_io_pump_moves_data_both_directions(void) {
     assert(WEXITSTATUS(status) == 0);
 }
 
+static void test_io_pump_timeout_on_idle(void) {
+    int sp[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sp) == 0);
+
+    pid_t pid = fork();
+    assert(pid >= 0);
+
+    if (pid == 0) {
+        close(sp[1]);
+
+        int idle_pipe[2];
+        assert(pipe(idle_pipe) == 0);
+        assert(dup2(idle_pipe[0], STDIN_FILENO) >= 0);
+        close(idle_pipe[0]);
+        // keep idle_pipe[1] open so stdin never hits EOF
+
+        int devnull = open("/dev/null", O_WRONLY);
+        assert(devnull >= 0);
+        assert(dup2(devnull, STDOUT_FILENO) >= 0);
+        close(devnull);
+
+        struct nc_ctx ctx;
+        nc_ctx_init(&ctx);
+        ctx.timeout = 1;
+
+        struct io_buf to_net = {0};
+        struct io_buf to_out = {0};
+
+        int rc = nc_pump_io(&ctx, sp[0], &to_net, &to_out);
+        nc_ctx_cleanup(&ctx);
+        close(idle_pipe[1]);
+        _exit(rc);
+    }
+
+    close(sp[0]);
+
+    int status;
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 1);
+    close(sp[1]);
+}
+
+static void test_quit_after_eof_allows_grace_period(void) {
+    int sp[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sp) == 0);
+
+    int cap[2];
+    assert(pipe(cap) == 0);
+
+    int stdin_pipe[2];
+    assert(pipe(stdin_pipe) == 0);
+
+    pid_t pid = fork();
+    assert(pid >= 0);
+
+    if (pid == 0) {
+        close(sp[1]);
+        close(cap[0]);
+        close(stdin_pipe[1]);
+
+        assert(dup2(stdin_pipe[0], STDIN_FILENO) >= 0);
+        close(stdin_pipe[0]);
+
+        assert(dup2(cap[1], STDOUT_FILENO) >= 0);
+        close(cap[1]);
+
+        struct nc_ctx ctx;
+        nc_ctx_init(&ctx);
+        ctx.quit_after_eof = 1;
+
+        struct io_buf to_net = {0};
+        struct io_buf to_out = {0};
+
+        int rc = nc_pump_io(&ctx, sp[0], &to_net, &to_out);
+        nc_ctx_cleanup(&ctx);
+        _exit(rc);
+    }
+
+    close(sp[0]);
+    close(cap[1]);
+    close(stdin_pipe[0]);
+
+    // Trigger EOF on child's stdin, starting the quit-after-eof timer.
+    close(stdin_pipe[1]);
+
+    const char* msg = "stay\n";
+    assert(write(sp[1], msg, strlen(msg)) == (ssize_t)strlen(msg));
+
+    char got[8] = {0};
+    ssize_t n = read(cap[0], got, sizeof(got));
+    assert(n == (ssize_t)strlen(msg));
+    assert(memcmp(got, msg, strlen(msg)) == 0);
+
+    int status;
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+
+    close(sp[1]);
+    close(cap[0]);
+}
+
 int main(void) {
     test_io_pump_moves_data_both_directions();
+    test_io_pump_timeout_on_idle();
+    test_quit_after_eof_allows_grace_period();
     return 0;
 }
