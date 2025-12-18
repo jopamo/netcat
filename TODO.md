@@ -115,6 +115,10 @@ These preserve option semantics but improve correctness
   * Handle POLLHUP and POLLERR explicitly
   * No busy loops
 
+* Testing gaps
+
+  * Randomized port selection (-r) needs deterministic seeding hook for reliable CLI coverage
+
 * Accept hygiene
 
   * Prefer `accept4(..., SOCK_CLOEXEC)` when available
