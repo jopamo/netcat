@@ -39,6 +39,18 @@ test('cli_tcp_loopback',
      python3,
      args: [files('cli_tcp_loopback.py'), nc_bin.full_path()],
      should_fail: false)
+test('cli_udp_loopback',
+     python3,
+     args: [files('cli_udp_loopback.py'), nc_bin.full_path()],
+     should_fail: false)
+test('cli_connect_timeout',
+     python3,
+     args: [files('cli_connect_timeout.py'), nc_bin.full_path()],
+     should_fail: false)
+test('cli_interval_pacing',
+     python3,
+     args: [files('cli_interval_pacing.py'), nc_bin.full_path()],
+     should_fail: false)
 
 if not ipv6_enabled
   test('cli_rejects_ipv6_flag_when_disabled',
