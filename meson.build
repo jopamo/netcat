@@ -59,10 +59,12 @@ srcs = [
 
 inc = include_directories('.', 'compat')
 
-executable('nc',
+nc_bin = executable('nc',
   srcs,
   include_directories : inc,
   dependencies : deps,
   install : true)
 
 install_man('nc.1')
+
+subdir('tests')
