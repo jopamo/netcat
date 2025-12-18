@@ -115,3 +115,6 @@ void nc_ctx_cleanup(struct nc_ctx* ctx);
 void nc_holler(struct nc_ctx* ctx, const char* fmt, ...);
 void nc_bail(struct nc_ctx* ctx, const char* fmt, ...);
 void nc_debug(struct nc_ctx* ctx, const char* fmt, ...);
+
+// FD utilities
+int nc_mark_cloexec(int fd);

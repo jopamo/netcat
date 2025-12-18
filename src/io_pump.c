@@ -1,6 +1,7 @@
 #include "io_pump.h"
 #include "hexdump.h"
 #include "telnet.h"
+#include "connect.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -25,12 +26,16 @@ static ssize_t buf_read_into(int fd, struct io_buf* b) {
     if (!b || b->len != 0)
         return 0;
 
-    ssize_t r = read(fd, b->data, b->cap);
-    if (r > 0) {
-        b->len = (size_t)r;
-        b->off = 0;
+    for (;;) {
+        ssize_t r = read(fd, b->data, b->cap);
+        if (r < 0 && errno == EINTR)
+            continue;
+        if (r > 0) {
+            b->len = (size_t)r;
+            b->off = 0;
+        }
+        return r;
     }
-    return r;
 }
 
 static ssize_t buf_write_from(int fd, struct io_buf* b) {
@@ -38,13 +43,17 @@ static ssize_t buf_write_from(int fd, struct io_buf* b) {
         return 0;
 
     size_t remaining = b->len - b->off;
-    ssize_t w = write(fd, b->data + b->off, remaining);
-    if (w > 0) {
-        b->off += (size_t)w;
-        if (b->off >= b->len)
-            buf_reset(b);
+    for (;;) {
+        ssize_t w = write(fd, b->data + b->off, remaining);
+        if (w < 0 && errno == EINTR)
+            continue;
+        if (w > 0) {
+            b->off += (size_t)w;
+            if (b->off >= b->len)
+                buf_reset(b);
+        }
+        return w;
     }
-    return w;
 }
 
 static bool timespec_reached(const struct timespec* target, const struct timespec* now) {
@@ -201,8 +210,15 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
 
         nfds_t idx = 0;
         struct pollfd* net_pfd = &pfds[idx++];
+        bool net_hup = (net_pfd->revents & POLLHUP) != 0;
+        bool net_err = (net_pfd->revents & (POLLERR | POLLNVAL)) != 0;
         struct pollfd* in_pfd = NULL;
         struct pollfd* out_pfd = NULL;
+
+        if (net_err) {
+            exit_code = 1;
+            break;
+        }
 
         if (stdin_open && to_net->len == 0)
             in_pfd = &pfds[idx++];
@@ -230,7 +246,7 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
         }
 
         // Network writable
-        if ((net_pfd->revents & POLLOUT) && to_net->len > 0 && !send_delay_active) {
+        if (!net_hup && (net_pfd->revents & POLLOUT) && to_net->len > 0 && !send_delay_active) {
             const unsigned char* start = to_net->data + to_net->off;
             size_t remaining = to_net->len - to_net->off;
             if (ctx->interval > 0) {
@@ -239,7 +255,7 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
                     remaining = (size_t)(nl - start + 1);
             }
 
-            ssize_t w = write(netfd, start, remaining);
+            ssize_t w = nc_send_no_sigpipe(netfd, start, remaining);
             if (w > 0) {
                 if (ctx->hexdump_enabled && ctx->hexdump_fd > 0)
                     nc_hexdump_log(ctx, 0, start, (size_t)w);
@@ -297,8 +313,10 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
             }
         }
 
-        if (net_pfd->revents & (POLLERR | POLLHUP | POLLNVAL)) {
-            if (buf_empty(to_out) && buf_empty(to_net))
+        if (net_hup) {
+            stdin_open = false;
+            buf_reset(to_net);
+            if (buf_empty(to_out))
                 break;
         }
     }

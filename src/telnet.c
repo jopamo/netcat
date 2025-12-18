@@ -1,4 +1,5 @@
 #include "nc_ctx.h"
+#include "connect.h"
 #include <unistd.h>
 #include <stdint.h>
 
@@ -27,7 +28,7 @@ void nc_telnet_negotiate(struct nc_ctx* ctx, int netfd, const unsigned char* buf
             reply[0] = 255;
             reply[1] = resp;
             reply[2] = opt;
-            (void)write(netfd, reply, sizeof(reply));
+            (void)nc_send_no_sigpipe(netfd, reply, sizeof(reply));
         }
     }
 }

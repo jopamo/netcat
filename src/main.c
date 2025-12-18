@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <time.h>
+#include <limits.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -40,9 +41,20 @@ static void setup_signals(struct nc_ctx* ctx) {
     signal(SIGINT, handle_term);
     signal(SIGQUIT, handle_term);
     signal(SIGTERM, handle_term);
-#ifdef SIGPIPE
-    signal(SIGPIPE, SIG_IGN);
-#endif
+}
+
+static unsigned int pick_random_seed(struct nc_ctx* ctx) {
+    const char* env = getenv("NC_RANDOM_SEED");
+    if (!env || env[0] == '\0')
+        return (unsigned int)time(NULL);
+
+    errno = 0;
+    char* endp = NULL;
+    unsigned long val = strtoul(env, &endp, 10);
+    if (errno != 0 || !endp || *endp != '\0' || val > UINT_MAX) {
+        nc_bail(ctx, "Invalid NC_RANDOM_SEED value '%s'", env);
+    }
+    return (unsigned int)val;
 }
 
 static void show_help(struct nc_ctx* ctx) {
@@ -453,9 +465,14 @@ int main(int argc, char** argv) {
 #endif
 
     if (ctx.hexdump_enabled && ctx.hexdump_path) {
-        ctx.hexdump_fd = open(ctx.hexdump_path, O_WRONLY | O_CREAT | O_TRUNC, 0664);
+        int flags = O_WRONLY | O_CREAT | O_TRUNC;
+#ifdef O_CLOEXEC
+        flags |= O_CLOEXEC;
+#endif
+        ctx.hexdump_fd = open(ctx.hexdump_path, flags, 0664);
         if (ctx.hexdump_fd < 0)
             nc_bail(&ctx, "can't open %s", ctx.hexdump_path);
+        (void)nc_mark_cloexec(ctx.hexdump_fd);
     }
 
     setup_signals(&ctx);
@@ -472,7 +489,8 @@ int main(int argc, char** argv) {
     }
 
     if (ctx.random_ports) {
-        srand((unsigned int)time(NULL));
+        unsigned int seed = pick_random_seed(&ctx);
+        srand(seed);
     }
 
     int exit_code;

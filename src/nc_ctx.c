@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 // Initialize context with default values
 void nc_ctx_init(struct nc_ctx* ctx) {
@@ -145,3 +146,15 @@ void nc_debug(struct nc_ctx* ctx, const char* fmt, ...) {
     (void)fmt;
 }
 #endif
+
+// Mark fd close-on-exec, ignore errors silently for stdio
+int nc_mark_cloexec(int fd) {
+    if (fd < 0)
+        return -1;
+    int flags = fcntl(fd, F_GETFD);
+    if (flags < 0)
+        return -1;
+    if (flags & FD_CLOEXEC)
+        return 0;
+    return fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+}

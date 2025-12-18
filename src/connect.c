@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <stdbool.h>
 
+#include "connect.h"
 #include "nc_ctx.h"
 #include "resolve.h"
 
@@ -25,6 +26,15 @@ static int determine_family(struct nc_ctx* ctx) {
         return AF_INET6;
 #endif
     return AF_INET;
+}
+
+static void disable_sigpipe(int fd) {
+#ifdef SO_NOSIGPIPE
+    int opt = 1;
+    (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &opt, sizeof(opt));
+#else
+    (void)fd;
+#endif
 }
 
 static void default_bind_addr(struct nc_ctx* ctx, int family, struct sockaddr_storage* out, socklen_t* outlen) {
@@ -66,7 +76,10 @@ int nc_connect_with_timeout(int fd, const struct sockaddr* sa, socklen_t slen, i
     pfd.events = POLLOUT;
 
     int ms = (timeout_secs > 0) ? timeout_secs * 1000 : -1;
-    int prc = poll(&pfd, 1, ms);
+    int prc;
+    do {
+        prc = poll(&pfd, 1, ms);
+    } while (prc < 0 && errno == EINTR);
     if (prc <= 0) {
         if (prc == 0)
             errno = ETIMEDOUT;
@@ -93,9 +106,17 @@ static int create_socket(struct nc_ctx* ctx) {
     int type = ctx->proto == NC_UDP ? SOCK_DGRAM : SOCK_STREAM;
     int protocol = ctx->proto == NC_UDP ? IPPROTO_UDP : IPPROTO_TCP;
 
+#ifdef SOCK_CLOEXEC
+    int fd = socket(domain, type | SOCK_CLOEXEC, protocol);
+    if (fd < 0 && errno == EINVAL)
+        fd = socket(domain, type, protocol);
+#else
     int fd = socket(domain, type, protocol);
+#endif
     if (fd < 0)
         return -1;
+    (void)nc_mark_cloexec(fd);
+    disable_sigpipe(fd);
 
     // Set SO_REUSEADDR
     int opt = 1;
@@ -223,7 +244,10 @@ int nc_listen(struct nc_ctx* ctx) {
 static int wait_for_fd(int fd, short events, int timeout_secs) {
     struct pollfd pfd = {.fd = fd, .events = events};
     int ms = (timeout_secs > 0) ? timeout_secs * 1000 : -1;
-    int rc = poll(&pfd, 1, ms);
+    int rc;
+    do {
+        rc = poll(&pfd, 1, ms);
+    } while (rc < 0 && errno == EINTR);
     if (rc == 0)
         errno = ETIMEDOUT;
     return rc;
@@ -255,9 +279,19 @@ int nc_accept(struct nc_ctx* ctx, int listen_fd) {
 
     struct sockaddr_storage peer;
     socklen_t peerlen = sizeof(peer);
-    int fd = accept(listen_fd, (struct sockaddr*)&peer, &peerlen);
+    int fd;
+#ifdef SOCK_CLOEXEC
+    fd = accept4(listen_fd, (struct sockaddr*)&peer, &peerlen, SOCK_CLOEXEC);
+    if (fd < 0 && (errno == ENOSYS || errno == EINVAL)) {
+        fd = accept(listen_fd, (struct sockaddr*)&peer, &peerlen);
+    }
+#else
+    fd = accept(listen_fd, (struct sockaddr*)&peer, &peerlen);
+#endif
     if (fd < 0)
         return -1;
+    (void)nc_mark_cloexec(fd);
+    disable_sigpipe(fd);
     close(listen_fd);  // single connection, match original behavior
     memcpy(&ctx->remote_addr, &peer, peerlen);
     ctx->remote_addrlen = peerlen;
@@ -268,7 +302,7 @@ int nc_accept(struct nc_ctx* ctx, int listen_fd) {
 // UDP port test (like original udptest)
 int nc_udp_test(struct nc_ctx* ctx, int fd) {
     unsigned char probe = ctx->buf_stdin ? ctx->buf_stdin[0] : 0;
-    if (write(fd, &probe, 1) != 1) {
+    if (nc_send_no_sigpipe(fd, &probe, 1) != 1) {
         nc_holler(ctx, "udptest first write failed: %s", strerror(errno));
     }
 
@@ -280,7 +314,7 @@ int nc_udp_test(struct nc_ctx* ctx, int fd) {
     }
 
     errno = 0;
-    if (write(fd, &probe, 1) == 1) {
+    if (nc_send_no_sigpipe(fd, &probe, 1) == 1) {
         return fd;  // port seems open
     }
     close(fd);
