@@ -14,6 +14,7 @@ int nc_resolve_one(const char* host,
                    bool numeric_only);
 
 int nc_reverse_name(const struct sockaddr* sa, socklen_t slen, char* host, size_t host_sz, bool numeric_only);
+bool nc_forward_reverse_mismatch(const struct sockaddr_storage* target, socklen_t target_len, const char* reverse_host);
 
 // Port and service resolution
 unsigned short nc_resolve_port(struct nc_ctx* ctx, const char* port_str);

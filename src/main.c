@@ -28,12 +28,6 @@ static void handle_term(int sig) {
     }
 }
 
-static void handle_alarm(int sig) {
-    (void)sig;
-    if (g_ctx)
-        g_ctx->quit_flag = 1;
-}
-
 static void setup_signals(struct nc_ctx* ctx) {
     g_ctx = ctx;
     signal(SIGINT, handle_term);
@@ -42,7 +36,6 @@ static void setup_signals(struct nc_ctx* ctx) {
 #ifdef SIGPIPE
     signal(SIGPIPE, SIG_IGN);
 #endif
-    signal(SIGALRM, handle_alarm);
 }
 
 static void show_help(struct nc_ctx* ctx) {
@@ -84,8 +77,7 @@ static void show_help(struct nc_ctx* ctx) {
 }
 
 static void format_addr(const struct sockaddr_storage* sa, socklen_t slen, bool numeric, char* out, size_t out_sz) {
-    int flags = numeric ? NI_NUMERICHOST : 0;
-    if (getnameinfo((const struct sockaddr*)sa, slen, out, out_sz, NULL, 0, flags) != 0) {
+    if (nc_reverse_name((const struct sockaddr*)sa, slen, out, out_sz, numeric) != 0) {
         strncpy(out, "unknown", out_sz - 1);
         out[out_sz - 1] = '\0';
     }
@@ -104,28 +96,6 @@ static bool addr_equal(const struct sockaddr_storage* a, const struct sockaddr_s
     }
 #endif
     return false;
-}
-
-static int args_from_stdin(char*** argv_out, char* argv0) {
-    char* buf = malloc(NC_BIGSIZ);
-    char** newv = calloc(128, sizeof(char*));
-    if (!buf || !newv)
-        return -1;
-    fprintf(stderr, "Cmd line: ");
-    fflush(stderr);
-    ssize_t r = read(STDIN_FILENO, buf, NC_BIGSIZ - 1);
-    if (r <= 0)
-        return -1;
-    buf[r] = '\0';
-
-    int argc = 1;
-    newv[0] = argv0;
-    char* save = NULL;
-    for (char* tok = strtok_r(buf, " \r\n\t", &save); tok && argc < 128; tok = strtok_r(NULL, " \r\n\t", &save)) {
-        newv[argc++] = tok;
-    }
-    *argv_out = newv;
-    return argc;
 }
 
 static int run_listen(struct nc_ctx* ctx, int argc, char** argv, int argi) {
@@ -218,6 +188,10 @@ static int run_connect(struct nc_ctx* ctx, int argc, char** argv, int argi) {
 
     bool any_success = false;
     int exit_code = 0;
+    bool reverse_checked = false;
+    bool have_reverse = false;
+    bool mismatch_warned = false;
+    char reverse_host[NI_MAXHOST] = {0};
 
     for (int i = argi; i < argc; i++) {
         if (nc_parse_port_range(ctx, argv[i]) < 0)
@@ -250,6 +224,19 @@ static int run_connect(struct nc_ctx* ctx, int argc, char** argv, int argi) {
                 goto next_port;
             }
 
+            if (ctx->verbose && !ctx->numeric_only && !reverse_checked) {
+                reverse_checked = true;
+                if (nc_reverse_name((const struct sockaddr*)&ctx->remote_addr, ctx->remote_addrlen, reverse_host,
+                                    sizeof(reverse_host), false) == 0) {
+                    have_reverse = true;
+                    if (!mismatch_warned &&
+                        nc_forward_reverse_mismatch(&ctx->remote_addr, ctx->remote_addrlen, reverse_host)) {
+                        mismatch_warned = true;
+                        nc_holler(ctx, "DNS fwd/rev mismatch: %s != %s", ctx->remote_host, reverse_host);
+                    }
+                }
+            }
+
             unsigned short saved_local = ctx->ourport;
             if (ctx->random_ports && ctx->ourport == 0) {
                 unsigned short rp = (unsigned short)(rand() & 0xffff);
@@ -266,11 +253,15 @@ static int run_connect(struct nc_ctx* ctx, int argc, char** argv, int argi) {
 
                 if (fd > 0) {
                     any_success = true;
-                    char target[NI_MAXHOST];
-                    format_addr(&ctx->remote_addr, ctx->remote_addrlen, true, target, sizeof(target));
+                    char numeric_target[NI_MAXHOST];
+                    format_addr(&ctx->remote_addr, ctx->remote_addrlen, true, numeric_target, sizeof(numeric_target));
+                    const char* display_host = ctx->remote_host;
+                    if (!ctx->numeric_only && have_reverse) {
+                        display_host = reverse_host;
+                    }
                     if (ctx->verbose) {
                         const char* pname = ctx->port_name[0] ? ctx->port_name : "?";
-                        nc_holler(ctx, "%s %s %u (%s) open", ctx->remote_host, target, cur, pname);
+                        nc_holler(ctx, "%s %s %u (%s) open", display_host, numeric_target, cur, pname);
                     }
 
 #ifdef GAPING_SECURITY_HOLE
@@ -324,15 +315,6 @@ static int run_connect(struct nc_ctx* ctx, int argc, char** argv, int argi) {
 int main(int argc, char** argv) {
     struct nc_ctx ctx;
     nc_ctx_init(&ctx);
-
-    if (argc == 1) {
-        char** new_argv = NULL;
-        int new_argc = args_from_stdin(&new_argv, argv[0]);
-        if (new_argc > 1) {
-            argv = new_argv;
-            argc = new_argc;
-        }
-    }
 
     int opt;
     opterr = 0;

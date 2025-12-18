@@ -62,7 +62,6 @@ void nc_ctx_init(struct nc_ctx* ctx) {
     ctx->to_net_buf = NULL;
     ctx->to_out_buf = NULL;
     ctx->got_signal = 0;
-    ctx->quit_flag = 0;
 }
 
 // Clean up context (free allocated memory)

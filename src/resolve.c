@@ -9,6 +9,26 @@ static int nc_socktype(enum nc_proto p) {
     return (p == NC_UDP) ? SOCK_DGRAM : SOCK_STREAM;
 }
 
+static bool sockaddr_match_address(const struct sockaddr* a, const struct sockaddr* b) {
+    if (!a || !b)
+        return false;
+    if (a->sa_family != b->sa_family)
+        return false;
+    if (a->sa_family == AF_INET) {
+        const struct sockaddr_in* ia = (const struct sockaddr_in*)a;
+        const struct sockaddr_in* ib = (const struct sockaddr_in*)b;
+        return ia->sin_addr.s_addr == ib->sin_addr.s_addr;
+    }
+#if NC_HAVE_IPV6
+    if (a->sa_family == AF_INET6) {
+        const struct sockaddr_in6* ia6 = (const struct sockaddr_in6*)a;
+        const struct sockaddr_in6* ib6 = (const struct sockaddr_in6*)b;
+        return memcmp(&ia6->sin6_addr, &ib6->sin6_addr, sizeof(struct in6_addr)) == 0;
+    }
+#endif
+    return false;
+}
+
 int nc_resolve_one(const char* host,
                    const char* service,
                    int family,
@@ -46,6 +66,33 @@ int nc_resolve_one(const char* host,
 int nc_reverse_name(const struct sockaddr* sa, socklen_t slen, char* host, size_t host_sz, bool numeric_only) {
     int flags = numeric_only ? NI_NUMERICHOST : 0;
     return getnameinfo(sa, slen, host, host_sz, NULL, 0, flags);
+}
+
+bool nc_forward_reverse_mismatch(const struct sockaddr_storage* target,
+                                 socklen_t target_len,
+                                 const char* reverse_host) {
+    (void)target_len;
+    if (!target || target_len == 0 || !reverse_host || reverse_host[0] == '\0')
+        return false;
+
+    struct addrinfo hints = {0};
+    hints.ai_family = target->ss_family;
+    hints.ai_flags = AI_ADDRCONFIG;
+
+    struct addrinfo* res = NULL;
+    int rc = getaddrinfo(reverse_host, NULL, &hints, &res);
+    if (rc != 0)
+        return true;
+
+    bool match = false;
+    for (struct addrinfo* ai = res; ai; ai = ai->ai_next) {
+        if (sockaddr_match_address((const struct sockaddr*)target, ai->ai_addr)) {
+            match = true;
+            break;
+        }
+    }
+    freeaddrinfo(res);
+    return !match;
 }
 
 // Resolve port string (like "http" or "80") to number

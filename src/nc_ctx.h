@@ -104,7 +104,6 @@ struct nc_ctx {
 
     // Signal coordination
     volatile sig_atomic_t got_signal;
-    volatile sig_atomic_t quit_flag;
 };
 
 // Context management

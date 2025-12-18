@@ -1,43 +1,149 @@
-# TODO.md — Modernize legacy nc-style codebase (C11 + Meson)
+# TODO.md — Fork/rewrite Netcat
 
-Goal: Rework the K&R-era netcat-like implementation into modern, maintainable C11
-Constraints:
-- [x] IPv6 is **optional** via Meson feature and **disabled by default**
-- [x] Remove IP_OPTIONS / LSRR and all source-routing flags/paths
-- [x] Keep exec feature (dangerous) and keep TELNET negotiation
-- [ ] Replace `select()` + FD_SETSIZE hacks and `alarm/setjmp` timeouts with nonblocking + `poll()`
-- [ ] Replace `gethostbyname/gethostbyaddr/h_errno/res_init` with `getaddrinfo/getnameinfo`
+Goal: Rework the K&R-era netcat-like implementation into modern, maintainable C11 while preserving original CLI options and behavior by default, but improving low-level safety and robustness
+
+Compatibility policy:
+- Legacy flags keep exact semantics (including edge cases) unless explicitly documented as deprecated
+- New useful behaviors must be added behind new options only (prefer long options to avoid collisions)
+- “Better low-level stuff” is allowed as a default when it does not change flag meanings or user-visible I/O semantics
+
+## Exec hardening default: close fds in child
+
+You can do that, and it fits your “same flags, better low-level behavior” goal — as long as you treat it as an internal hardening default and provide an explicit escape hatch
+
+Policy:
+- When `-e` (or any exec mode) is used, default to: child inherits only fd 0/1/2
+- Add a new option to disable it:
+  - `--exec-inherit-fds` (recommended name)
+  - or `--no-exec-close-fds`
+
+This does not change the CLI meaning of `-e`; it only changes the child process environment, which is almost always a pure improvement (prevents leaking hexdump files, listening sockets, logs, etc). If someone had been relying on leaked fds (rare), they can opt out
+
+Implementation shape
+
+In `ctx`:
+
+```c
+// defaults
+ctx->exec_close_fds = true;  // default ON
+````
+
+CLI parsing (new option only):
+
+* `--exec-inherit-fds` → `ctx->exec_close_fds = false`
+
+Exec path:
+
+* `dup2(netfd, 0/1/2)` checked
+* close original `netfd` if > 2
+* if `ctx->exec_close_fds`: close everything >= 3
+* exec
+
+Use `close_range` when possible + portable fallback
+
+```c
+#include <unistd.h>
+#include <errno.h>
+#include <sys/syscall.h>
+
+static void nc_close_fds_keep_stdio(void) {
+#if defined(__linux__) && defined(SYS_close_range)
+    // close everything >= 3
+    if (syscall(SYS_close_range, 3U, ~0U, 0U) == 0) return;
+#endif
+    long maxfd = sysconf(_SC_OPEN_MAX);
+    if (maxfd < 0) maxfd = 1024;
+    for (int fd = 3; fd < maxfd; fd++) close(fd);
+}
+```
+
+## Low-level robustness improvements that should be default
+
+These are big wins that keep option semantics the same, but make the implementation sturdier
+
+* Set CLOEXEC on every non-stdio fd by default
+
+  * sockets, hexdump file, logs, temp files
+  * reduces fd leaks even without exec-close-fds
+* Avoid SIGPIPE surprises
+
+  * use `send(..., MSG_NOSIGNAL)` when available, or ignore SIGPIPE early
+* Poll loop correctness + robust EINTR handling
+
+  * retry `poll/read/write` on EINTR
+  * handle POLLHUP and POLLERR cleanly
+* Prefer `accept4(..., SOCK_CLOEXEC)` when available
+
+  * fallback to `accept` + `fcntl(FD_CLOEXEC)`
+* Nonblocking connect done right
+
+  * use `O_NONBLOCK + poll + getsockopt(SO_ERROR)`
+
+Recommended new options (small, useful, no collisions):
+
+* `--exec-inherit-fds` disable default close-fds hardening
+* Optional future: `--exec-keep-fd=N` repeatable, if you ever need to intentionally pass extra fds
+
+Doc wording (so it’s not “behavior change” drama):
+
+* In `nc.1` and README under “Extensions”:
+
+  * By default, when using exec modes, nc closes all file descriptors except stdin/stdout/stderr before executing the program. Disable with `--exec-inherit-fds`
+
+---
+
+## Constraints
+
+* [x] IPv6 is optional via Meson feature and disabled by default
+* [x] Remove IP_OPTIONS / LSRR and all source-routing flags/paths
+* [x] Keep exec feature (dangerous) and keep TELNET negotiation
+* [x] Replace `select()` + FD_SETSIZE hacks and `alarm/setjmp` timeouts with nonblocking + `poll()`
+* [x] Replace `gethostbyname/gethostbyaddr/h_errno/res_init` with `getaddrinfo/getnameinfo`
+
+---
 
 ## Original CLI compatibility backlog
 
-- [ ] Reintroduce historical source-routing flags `-g`/`-G` (currently removed for safety/portability) or document a deliberate deprecation plan.
+* [x] Deliberately remove source-routing flags `-g`/`-G` (safety/portability)
+* [ ] Document the deprecation clearly in:
+
+  * [ ] README.md (compat notes)
+  * [ ] nc.1 (options section)
+  * [ ] `-h` help output
+
+Legacy `-e` behavior must remain unchanged:
+
+* [ ] `-e prog` execs `prog` with no args (no implicit shell)
+* [ ] Exit code remains consistent with legacy expectations (127 on exec failure)
 
 ---
 
 ## 0) Project structure split
 
-- [x] Create modules (even if you keep a single binary)
-  - [x] `src/main.c` CLI + wiring
-  - [x] `src/nc_ctx.h` / `src/nc_ctx.c` global state -> context struct
-  - [x] `src/resolve.c` address resolution
-  - [x] `src/connect.c` connect/listen helpers
-  - [x] `src/io_pump.c` bidirectional copy loop using poll
-  - [x] `src/telnet.c` TELNET negotiation helper
-  - [x] `src/hexdump.c` optional traffic dump (if you keep `-o file`)
-  - [x] `src/exec.c` exec feature (gated, explicit warnings)
+* [x] Create modules (even if you keep a single binary)
+
+  * [x] `src/main.c` CLI + wiring
+  * [x] `src/nc_ctx.h` / `src/nc_ctx.c` context struct + defaults
+  * [x] `src/resolve.c` address resolution
+  * [x] `src/connect.c` connect/listen helpers
+  * [x] `src/io_pump.c` bidirectional copy loop using poll
+  * [x] `src/telnet.c` TELNET negotiation helper
+  * [x] `src/hexdump.c` optional traffic dump
+  * [x] `src/exec.c` exec feature (gated, explicit warnings)
 
 ---
 
 ## 1) Meson: IPv6 optional feature, default disabled
 
-- [x] Add a Meson feature option (default `disabled`)
-  - [x] `meson_options.txt`
+* [x] Add a Meson feature option (default disabled)
+
+  * [x] `meson_options.txt`
 
 ```meson
 option('ipv6', type: 'feature', value: 'disabled', description: 'Enable IPv6 support')
-````
+```
 
-- [x] In `meson.build`, detect headers and set a config define
+* [x] In `meson.build`, detect headers and set a config define
 
 ```meson
 project('nc', 'c', default_options: ['c_std=c11', 'warning_level=3'])
@@ -75,7 +181,7 @@ executable('nc',
 )
 ```
 
-- [x] In C, include config and guard IPv6 code
+* [x] In C, include config and guard IPv6 code
 
 ```c
 #include "config.h"
@@ -91,23 +197,20 @@ executable('nc',
 
 ## 2) Delete IP_OPTIONS / LSRR and related CLI flags
 
-- [x] Remove:
+* [x] Remove:
 
-  - [x] `-g`, `-G`, `gatesidx`, `gatesptr`, `gates` arrays
-  - [x] `optbuf` source-routing builder
-  - [x] any `#ifdef IP_OPTIONS` blocks
-- [x] Update help text accordingly
-
-Code example (what stays): nothing
-Code example (what gets deleted): all `setsockopt(..., IP_OPTIONS, ...)` paths
+  * [x] `-g`, `-G`, `gatesidx`, `gatesptr`, `gates` arrays
+  * [x] `optbuf` source-routing builder
+  * [x] any `#ifdef IP_OPTIONS` blocks
+* [x] Update help text accordingly
 
 ---
 
 ## 3) Replace global variables with a single context struct
 
-- [ ] Create `struct nc_ctx` and pass it everywhere
+* [ ] Create `struct nc_ctx` and pass it everywhere
 
-`src/nc_ctx.h`:
+`src/nc_ctx.h` sketch:
 
 ```c
 #pragma once
@@ -116,6 +219,13 @@ Code example (what gets deleted): all `setsockopt(..., IP_OPTIONS, ...)` paths
 #include <stdio.h>
 
 enum nc_proto { NC_TCP, NC_UDP };
+
+enum nc_exec_mode {
+    NC_EXEC_NONE = 0,
+    NC_EXEC_LEGACY_PROG,   // legacy -e prog, no args
+    NC_EXEC_SH,            // new: --sh-exec
+    NC_EXEC_ARGV,          // new: --exec-argv (execv)
+};
 
 struct nc_ctx {
     enum nc_proto proto;
@@ -138,526 +248,206 @@ struct nc_ctx {
     uint64_t wrote_out;
     uint64_t wrote_net;
 
+    enum nc_exec_mode exec_mode;
+
     const char* exec_prog;
-    bool exec_use_sh;
+    char** exec_argv;
+
+    bool exec_close_fds;      // default ON for exec
+    bool exec_reset_signals;  // optional
 };
 ```
 
-- [ ] Replace `holler/bail` with modern logging helpers
-
-```c
-static void nc_logf(struct nc_ctx* ctx, const char* fmt, ...) {
-    if (!ctx->verbose)
-        return;
-
-    FILE* out = ctx->log_out ? ctx->log_out : stderr;
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(out, fmt, ap);
-    va_end(ap);
-    fputc('\n', out);
-    fflush(out);
-}
-
-static void nc_die(struct nc_ctx* ctx, const char* fmt, ...) {
-    FILE* out = ctx->log_out ? ctx->log_out : stderr;
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(out, fmt, ap);
-    va_end(ap);
-
-    if (errno)
-        fprintf(out, ": %s", strerror(errno));
-
-    fputc('\n', out);
-    exit(1);
-}
-```
+* [ ] Replace `holler/bail` with modern logging helpers
+* [ ] Ensure all logging goes to stderr by default and respects `-v` levels
 
 ---
 
 ## 4) Replace resolver code with getaddrinfo/getnameinfo
 
-- [ ] Remove:
+* [x] Remove:
 
-  - [ ] `struct host_poop`, `gethostpoop`, `gethost6poop`
-  - [ ] `comparehosts*`, `h_errno`, `res_init`, resolver tables
+  * [x] `gethostbyname`, `gethostbyaddr`, `h_errno`, `res_init`
+  * [x] legacy resolver tables and host compare helpers
 
-- [ ] New helper: resolve one destination (first match)
+* [x] Implement:
 
-`src/resolve.c`:
-
-```c
-#include <netdb.h>
-#include <string.h>
-#include <errno.h>
-
-static int nc_socktype(enum nc_proto p) {
-    return (p == NC_UDP) ? SOCK_DGRAM : SOCK_STREAM;
-}
-
-int nc_resolve_one(const char* host, const char* service,
-                   int family, enum nc_proto proto,
-                   struct sockaddr_storage* out, socklen_t* out_len,
-                   bool numeric_only) {
-    struct addrinfo hints = {0};
-    hints.ai_family = family;               // AF_UNSPEC / AF_INET / AF_INET6
-    hints.ai_socktype = nc_socktype(proto);
-    hints.ai_flags = AI_ADDRCONFIG;
-    if (numeric_only)
-        hints.ai_flags |= AI_NUMERICHOST;
-
-    struct addrinfo* res = NULL;
-    int rc = getaddrinfo(host, service, &hints, &res);
-    if (rc != 0)
-        return -1;
-
-    memcpy(out, res->ai_addr, res->ai_addrlen);
-    *out_len = (socklen_t)res->ai_addrlen;
-    freeaddrinfo(res);
-    return 0;
-}
-```
-
-- [ ] Optional: reverse lookup for verbose prints using `getnameinfo()`
-
-```c
-int nc_reverse_name(const struct sockaddr* sa, socklen_t slen,
-                    char* host, size_t host_sz,
-                    bool numeric_only) {
-    int flags = numeric_only ? NI_NUMERICHOST : 0;
-    return getnameinfo(sa, slen, host, host_sz, NULL, 0, flags);
-}
-```
+  * [x] `nc_resolve_one()` using getaddrinfo
+  * [x] reverse lookup using getnameinfo for verbose prints
+  * [x] preserve legacy forward/reverse mismatch warning when `-v` and not `-n`
 
 ---
 
 ## 5) Connect timeout: remove alarm/setjmp and use nonblocking + poll
 
-- [ ] Delete:
-
-  - [ ] `jmp_buf`, `tmtravel`, `arm_timer`, all `setjmp/longjmp` usage
-
-`src/connect.c`:
-
-```c
-#include <fcntl.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <errno.h>
-
-int nc_connect_with_timeout(int fd, const struct sockaddr* sa, socklen_t slen, int timeout_secs) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0)
-        return -1;
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
-        return -1;
-
-    int rc = connect(fd, sa, slen);
-    if (rc == 0)
-        goto done;
-
-    if (errno != EINPROGRESS)
-        return -1;
-
-    struct pollfd pfd = {0};
-    pfd.fd = fd;
-    pfd.events = POLLOUT;
-
-    int ms = (timeout_secs > 0) ? timeout_secs * 1000 : -1;
-    int prc = poll(&pfd, 1, ms);
-    if (prc <= 0) {
-        if (prc == 0)
-            errno = ETIMEDOUT;
-        return -1;
-    }
-
-    int soerr = 0;
-    socklen_t olen = sizeof(soerr);
-    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &olen) < 0)
-        return -1;
-    if (soerr != 0) {
-        errno = soerr;
-        return -1;
-    }
-
-done:
-    (void)fcntl(fd, F_SETFL, flags);
-    return 0;
-}
-```
+* [x] Delete `alarm`, signal(SIGALRM), setjmp/longjmp
+* [x] Implement `nc_connect_with_timeout()` using O_NONBLOCK + poll() + SO_ERROR
 
 ---
 
 ## 6) Replace select()+FD_SETSIZE hacks with poll-based pump
 
-- [ ] Delete:
-
-  - [ ] `FD_SETSIZE` redefines
-  - [ ] `ding1/ding2`, `select(16, ...)` calls
-  - [ ] `findline()` throttling logic that assumes fixed sizes
-- [ ] Implement a clean “pump” loop
-
-`src/io_pump.c` (core skeleton):
-
-```c
-#include <poll.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-
-struct io_buf {
-    unsigned char* data;
-    size_t cap;
-    size_t len;
-    size_t off;
-};
-
-static bool buf_empty(const struct io_buf* b) {
-    return b->off >= b->len;
-}
-
-static void buf_reset(struct io_buf* b) {
-    b->len = 0;
-    b->off = 0;
-}
-
-static ssize_t buf_read_into(int fd, struct io_buf* b) {
-    if (b->len != 0)
-        return 0;
-    ssize_t r = read(fd, b->data, b->cap);
-    if (r > 0) {
-        b->len = (size_t)r;
-        b->off = 0;
-    }
-    return r;
-}
-
-static ssize_t buf_write_from(int fd, struct io_buf* b) {
-    if (buf_empty(b))
-        return 0;
-    ssize_t r = write(fd, b->data + b->off, b->len - b->off);
-    if (r > 0) {
-        b->off += (size_t)r;
-        if (buf_empty(b))
-            buf_reset(b);
-    }
-    return r;
-}
-
-int nc_pump_io(struct nc_ctx* ctx, int netfd,
-               struct io_buf* to_net, struct io_buf* to_out) {
-    bool stdin_open = true;
-
-    for (;;) {
-        struct pollfd pfds[2] = {0};
-        nfds_t n = 0;
-
-        // netfd
-        pfds[n].fd = netfd;
-        pfds[n].events = 0;
-        if (to_out->len == 0)
-            pfds[n].events |= POLLIN;
-        if (!buf_empty(to_net))
-            pfds[n].events |= POLLOUT;
-        n++;
-
-        // stdin
-        if (stdin_open) {
-            pfds[n].fd = STDIN_FILENO;
-            pfds[n].events = (to_net->len == 0) ? POLLIN : 0;
-            n++;
-        }
-
-        int ms = (ctx->timeout_secs > 0) ? ctx->timeout_secs * 1000 : -1;
-        int prc = poll(pfds, n, ms);
-        if (prc < 0) {
-            if (errno == EINTR)
-                continue;
-            return -1;
-        }
-        if (prc == 0) {
-            // timeout
-            errno = ETIMEDOUT;
-            return -1;
-        }
-
-        // net readable -> stdout buffer
-        if (pfds[0].revents & POLLIN) {
-            ssize_t r = buf_read_into(netfd, to_out);
-            if (r == 0)
-                return 0; // net closed
-            if (r < 0 && errno != EINTR)
-                return -1;
-
-#ifdef TELNET
-            if (ctx->telnet && to_out->len > 0) {
-                nc_telnet_negotiate(ctx, netfd, to_out->data, to_out->len);
-            }
-#endif
-        }
-
-        // stdout writable -> flush stdout buffer
-        if (!buf_empty(to_out)) {
-            ssize_t w = buf_write_from(STDOUT_FILENO, to_out);
-            if (w > 0)
-                ctx->wrote_out += (uint64_t)w;
-            if (w < 0 && errno != EINTR)
-                return -1;
-        }
-
-        // stdin readable -> net buffer
-        if (stdin_open && n == 2 && (pfds[1].revents & POLLIN)) {
-            ssize_t r = buf_read_into(STDIN_FILENO, to_net);
-            if (r == 0) {
-                stdin_open = false;
-                if (ctx->quit_after_eof_secs == 0) {
-                    shutdown(netfd, SHUT_WR);
-                }
-            }
-            if (r < 0 && errno != EINTR)
-                return -1;
-        }
-
-        // net writable -> flush net buffer
-        if (!buf_empty(to_net) && (pfds[0].revents & POLLOUT)) {
-            ssize_t w = buf_write_from(netfd, to_net);
-            if (w > 0)
-                ctx->wrote_net += (uint64_t)w;
-            if (w < 0 && errno != EINTR)
-                return -1;
-        }
-    }
-}
-```
-
-- [ ] Reintroduce “interval per line” cleanly (optional)
-
-  - [ ] Instead of `findline()` + partial writes, implement:
-
-    - [ ] if `interval_secs > 0`, only send up to newline per wake, then sleep
+* [x] Delete FD_SETSIZE redefines and select() paths
+* [x] Implement a clean poll() pump loop
+* [x] Reintroduce interval-per-line behavior in a controlled way
+* [ ] Add `--pump=compat` only if a real compatibility regression is found
 
 ---
 
 ## 7) Telnet negotiation kept, but isolated
 
-- [ ] Move TELNET logic into `src/telnet.c`
-- [ ] Keep it pure: it should only inspect incoming bytes and write replies
-
-Example stub:
-
-```c
-// telnet.c
-#include <unistd.h>
-#include <stdint.h>
-
-void nc_telnet_negotiate(struct nc_ctx* ctx, int netfd, const unsigned char* buf, size_t len) {
-    (void)ctx;
-
-    // Minimal logic: when you see IAC (255), respond with DONT/WONT variants
-    // Keep behavior compatible with your existing atelnet()
-    // Important: do not block; write best-effort
-
-    unsigned char reply[3];
-    for (size_t i = 0; i + 2 < len; i++) {
-        if (buf[i] != 255)
-            continue;
-
-        unsigned char cmd = buf[i + 1];
-        unsigned char opt = buf[i + 2];
-
-        unsigned char resp = 0;
-        if (cmd == 251 || cmd == 252) // WILL/WONT
-            resp = 254;               // DONT
-        else if (cmd == 253 || cmd == 254) // DO/DONT
-            resp = 252;                    // WONT
-
-        if (resp) {
-            reply[0] = 255;
-            reply[1] = resp;
-            reply[2] = opt;
-            (void)write(netfd, reply, sizeof(reply));
-        }
-    }
-}
-```
+* [ ] Move TELNET logic into `src/telnet.c`
+* [ ] Keep it pure and nonblocking
+* [ ] Ensure behavior matches legacy `-t`
+* [ ] Add a minimal regression test for telnet negotiation replies
 
 ---
 
-## 8) Keep exec feature, but fence it hard
+## 8) Exec support: keep legacy, add new behaviors behind new options
 
-- [ ] Put exec in its own module and treat it as “dangerous”
-- [ ] Avoid implicit shell unless user explicitly requests
-- [ ] Prefer `execvp()` for direct exec; use `/bin/sh -c` only when asked
+Legacy behavior (must remain unchanged):
 
-`src/exec.c`:
+* [ ] `-e prog` runs `prog` directly with no args
+* [ ] No implicit shell
+* [ ] Exit 127 on exec failure
+* [ ] Warn in `-h` output that it is dangerous (compat-friendly wording)
 
-```c
-#include <unistd.h>
-#include <stdlib.h>
+New options:
 
-__attribute__((noreturn))
-void nc_exec_after_connect(struct nc_ctx* ctx, int netfd) {
-    if (!ctx->exec_prog)
-        _exit(127);
+* [ ] `--exec-argv <prog> [args...]`
 
-    dup2(netfd, STDIN_FILENO);
-    dup2(netfd, STDOUT_FILENO);
-    dup2(netfd, STDERR_FILENO);
-    close(netfd);
+  * [ ] consumes remaining argv tokens as argv vector
+  * [ ] uses `execv(prog, argv)`
+* [ ] `--sh-exec <string>`
 
-    if (ctx->exec_use_sh) {
-        execl("/bin/sh", "sh", "-c", ctx->exec_prog, (char*)0);
-        _exit(127);
-    }
+  * [ ] runs `/bin/sh -c <string>` explicitly
+  * [ ] no change to `-e` semantics
+* [ ] `--exec-inherit-fds`
 
-    // exec_prog is a path; execute it directly
-    execl(ctx->exec_prog, ctx->exec_prog, (char*)0);
-    _exit(127);
-}
-```
+  * [ ] disables default close-fds hardening
+* [ ] `--exec-reset-signals`
 
-- [ ] Ensure CLI parsing forces explicit enable:
+  * [ ] resets signal handlers before exec
+* [ ] Optional: `--exec-env-clear`
 
-  - [ ] `-e /path/to/prog` direct exec
-  - [ ] `-c "cmd"` shell exec
+  * [ ] clears environment before exec
+
+Exec implementation hardening:
+
+* [ ] Check `dup2()` return values
+* [ ] Don’t close netfd if it is 0/1/2
+* [ ] Apply close-fds hardening by default unless `--exec-inherit-fds`
+* [ ] Prefer `execv()` for argv mode
+* [ ] Use `/bin/sh` only for sh mode
 
 ---
 
 ## 9) Remove “read argv from stdin” hack
 
-The legacy code reads “Cmd line:” from stdin if argc==1. That’s weird and fragile.
-
-- [ ] Delete that behavior entirely
-- [ ] If you need “command from stdin”, add an explicit option later
+* [x] Delete argc==1 stdin-argv behavior
+* [ ] If needed later, add `--args-from-stdin` (opt-in)
 
 ---
 
 ## 10) Listening mode rework (TCP/UDP)
 
-- [ ] Implement `nc_listen()` and `nc_accept()` for TCP
-- [ ] For UDP listen:
+* [ ] Implement `nc_listen()` and `nc_accept()` for TCP
+* [ ] UDP listen:
 
-  - [ ] bind and then `recvfrom(MSG_PEEK)` only if you really need “discover peer”
-  - [ ] or simpler: just `recvfrom()` and then `connect()` the socket to that peer
-
-Example snippet (UDP “lock to first peer”):
-
-```c
-// after bind()
-struct sockaddr_storage peer = {0};
-socklen_t peer_len = sizeof(peer);
-unsigned char tmp[1];
-
-ssize_t r = recvfrom(fd, tmp, sizeof(tmp), MSG_PEEK, (struct sockaddr*)&peer, &peer_len);
-if (r >= 0) {
-    if (connect(fd, (struct sockaddr*)&peer, peer_len) < 0)
-        return -1;
-}
-```
+  * [ ] bind then lock to first peer by connect() after initial recvfrom/peek
+  * [ ] preserve legacy behavior where observable
 
 ---
 
 ## 11) CLI/Help modernization
 
-- [ ] Convert all K&R function defs to ANSI prototypes
+* [ ] Convert all K&R function definitions to ANSI prototypes
+* [ ] Replace unsafe formatting and fixed buffers with snprintf
+* [ ] Keep legacy flags and preserve behavior:
 
-- [ ] Replace unsafe formatting and fixed buffers with `snprintf`
+  * [ ] `-4` force IPv4
+  * [ ] `-6` force IPv6 (error if ipv6 feature disabled)
+  * [ ] `-l` listen
+  * [ ] `-p` local port
+  * [ ] `-s` local source address
+  * [ ] `-u` UDP
+  * [ ] `-v` verbose
+  * [ ] `-n` numeric-only
+  * [ ] `-w secs` timeout
+  * [ ] `-i secs` interval
+  * [ ] `-z` zero-IO scanning
+  * [ ] `-t` telnet negotiation
+  * [ ] `-o file` hexdump file
+  * [ ] `-q secs` quit delay after stdin EOF
+  * [ ] `-e prog` legacy exec
 
-- [ ] Keep flags you want:
+Add new options block (extensions):
 
-  - [ ] `-4` (force IPv4)
-  - [ ] `-6` (force IPv6) only if `NC_ENABLE_IPV6` else error
-  - [ ] `-l` listen
-  - [ ] `-p` local port
-  - [ ] `-s` local source address
-  - [ ] `-u` UDP
-  - [ ] `-v` verbose
-  - [ ] `-n` numeric-only
-  - [ ] `-w secs` timeout
-  - [ ] `-i secs` interval
-  - [ ] `-z` zero-IO scanning
-  - [ ] `-t` telnet negotiation
-  - [ ] `-o file` hexdump file
-  - [ ] `-q secs` quit delay after stdin EOF
-  - [ ] `-e prog` exec
-  - [ ] `-c cmd` shell exec
-
-- [ ] Remove flags related to LSRR/source routing:
-
-  - [x] `-g`, `-G` gone
-  - [ ] `-a` all-A-records: either remove or implement properly with getaddrinfo iteration
+* [ ] `--exec-argv`
+* [ ] `--sh-exec`
+* [ ] `--exec-inherit-fds`
+* [ ] `--exec-reset-signals`
 
 ---
 
 ## 12) Hexdump: keep but modernize
 
-- [ ] Move hexdump formatting into `src/hexdump.c`
-- [ ] Don’t use magic offsets and fixed “stage” buffers
-- [ ] Use a single line builder with bounded writes
-
-Example simple dumper:
-
-```c
-void nc_hexdump_write(int fd, const unsigned char* buf, size_t len, uint64_t base) {
-    char line[128];
-    for (size_t off = 0; off < len; off += 16) {
-        size_t n = len - off;
-        if (n > 16) n = 16;
-
-        int p = snprintf(line, sizeof(line), "%08llx  ", (unsigned long long)(base + off));
-        for (size_t i = 0; i < 16; i++) {
-            if (i < n) p += snprintf(line + p, sizeof(line) - p, "%02x ", buf[off + i]);
-            else       p += snprintf(line + p, sizeof(line) - p, "   ");
-        }
-        p += snprintf(line + p, sizeof(line) - p, " |");
-        for (size_t i = 0; i < n; i++) {
-            unsigned char c = buf[off + i];
-            line[p++] = (c >= 32 && c < 127) ? (char)c : '.';
-        }
-        line[p++] = '|';
-        line[p++] = '\n';
-        (void)write(fd, line, (size_t)p);
-    }
-}
-```
+* [ ] Ensure hexdump output remains compatible (prefixes, counters) if required
+* [ ] Keep formatting bounded and fast
+* [ ] Add `--hexdump-append` as a new option if append is desired
+* [ ] Ensure hexdump fd is marked CLOEXEC unless explicitly required
 
 ---
 
 ## 13) Security and hardening toggles
 
-- [ ] Add build flags in Meson for hardening
+Default low-level safety:
 
-  - [ ] `-D_FORTIFY_SOURCE=2` (glibc), `-fstack-protector-strong`, `-fPIE`, `-pie`, `-Wl,-z,relro,-z,now`
-- [ ] Treat exec as a deliberate choice; print warning
+* [ ] Ensure all created fds use CLOEXEC by default
+* [ ] Prefer `accept4(..., SOCK_CLOEXEC)` when available
+* [ ] Avoid SIGPIPE surprises (MSG_NOSIGNAL or ignore SIGPIPE early)
+* [ ] Poll loop EINTR correctness and robust POLLHUP/POLLERR handling
+
+Optional build hardening (Meson options):
+
+* [ ] `-fstack-protector-strong`
+* [ ] `-fPIE -pie`
+* [ ] `-Wl,-z,relro,-z,now`
+* [ ] `_FORTIFY_SOURCE=2` when supported
 
 ---
 
 ## 14) Testing checklist
 
-- [ ] IPv4 TCP connect: `./nc host 80`
-- [ ] IPv4 listen: `./nc -l -p 9999`
-- [ ] UDP send/recv: `./nc -u host 9999`
-- [ ] UDP listen + first peer connect: `./nc -u -l -p 9999`
-- [ ] Telnet negotiation: connect to a telnet-ish endpoint and verify responses
-- [ ] Exec:
+Core behavior:
 
-  - [ ] `./nc -e /bin/cat host 9999`
-  - [ ] `./nc -c "id" host 9999`
-- [ ] Timeout: `-w 1` to a blackhole address should exit with ETIMEDOUT
-- [ ] `-6` behavior:
+* [ ] IPv4 TCP connect: `./nc host 80`
+* [ ] IPv4 listen: `./nc -l -p 9999`
+* [ ] UDP send/recv: `./nc -u host 9999`
+* [ ] UDP listen + first peer lock: `./nc -u -l -p 9999`
+* [ ] Telnet negotiation: verify `-t` responses
+* [ ] Timeout: `-w 1` to a blackhole address returns ETIMEDOUT
 
-  - [ ] with ipv6 disabled: print a clear error
-  - [ ] with ipv6 enabled: connect/listen works
+Exec behavior:
+
+* [ ] Legacy: `./nc -e /bin/cat host 9999`
+* [ ] New argv exec: `./nc --exec-argv /bin/echo hello host 9999`
+* [ ] New shell exec: `./nc --sh-exec 'id; uname -a' host 9999`
+* [ ] Default hardening: without extra options, exec child inherits only 0/1/2
+* [ ] Escape hatch: `--exec-inherit-fds` disables close-fds
+* [ ] `-6` behavior:
+
+  * [ ] ipv6 disabled: clear error
+  * [ ] ipv6 enabled: connect/listen works
 
 ---
 
-## 15) Cleanup list (things to delete entirely)
+## 15) Cleanup list
 
-- [ ] K&R function definitions (all)
-- [ ] `FD_SETSIZE` redefinition and `select(16, ...)`
-- [ ] `alarm`, `signal(SIGALRM)`, `setjmp/longjmp`
-- [ ] `gethostbyname`, `gethostbyaddr`, `getservby*` (optional; can keep `getservbyname` if you want)
-- [x] `netinet/in_systm.h`, `netinet/ip.h` include soup
-- [x] LSRR/IP_OPTIONS source routing (`-g`, `-G`, `gates*`)
-- [ ] “read command line from stdin” argc==1 hack
+* [ ] K&R function definitions (all)
+* [x] FD_SETSIZE redefinition and select() paths
+* [x] alarm, SIGALRM handler, setjmp/longjmp timeouts
+* [ ] gethostbyname/gethostbyaddr/h_errno/res_init (after getaddrinfo migration)
+* [x] include soup (netinet/in_systm.h, netinet/ip.h)
+* [x] LSRR/IP_OPTIONS source routing (`-g`, `-G`, `gates*`)
+* [x] argc==1 “read command line from stdin” hack

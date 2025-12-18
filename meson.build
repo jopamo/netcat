@@ -85,7 +85,7 @@ install_data(scripts, install_dir:get_option('bindir'), install_mode:'rwxr-xr-x'
 install_man('man/nc.1')
 
 docdir = get_option('datadir') / 'doc' / meson.project_name()
-install_data(['README', 'README.md'], install_dir:docdir)
+install_data(['README.md'], install_dir:docdir)
 
 summary({
   'IPv6 support'        : get_option('ipv6'),

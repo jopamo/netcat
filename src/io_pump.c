@@ -1,236 +1,309 @@
 #include "io_pump.h"
-#include "telnet.h"
 #include "hexdump.h"
-#include <poll.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <signal.h>
+#include "telnet.h"
 
-// Find next newline in buffer (like original findline)
-static size_t find_line(const unsigned char* buf, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        if (buf[i] == '\n') {
-            return i + 1;  // include newline
-        }
-    }
-    return len;  // no newline, send whole buffer
+#include <errno.h>
+#include <limits.h>
+#include <poll.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+static bool buf_empty(const struct io_buf* b) {
+    return !b || b->len == 0;
 }
 
+static void buf_reset(struct io_buf* b) {
+    if (!b)
+        return;
+    b->len = 0;
+    b->off = 0;
+}
+
+static ssize_t buf_read_into(int fd, struct io_buf* b) {
+    if (!b || b->len != 0)
+        return 0;
+
+    ssize_t r = read(fd, b->data, b->cap);
+    if (r > 0) {
+        b->len = (size_t)r;
+        b->off = 0;
+    }
+    return r;
+}
+
+static ssize_t buf_write_from(int fd, struct io_buf* b) {
+    if (!b || buf_empty(b))
+        return 0;
+
+    size_t remaining = b->len - b->off;
+    ssize_t w = write(fd, b->data + b->off, remaining);
+    if (w > 0) {
+        b->off += (size_t)w;
+        if (b->off >= b->len)
+            buf_reset(b);
+    }
+    return w;
+}
+
+static bool timespec_reached(const struct timespec* target, const struct timespec* now) {
+    return target->tv_sec < now->tv_sec || (target->tv_sec == now->tv_sec && target->tv_nsec <= now->tv_nsec);
+}
+
+static int ms_until(const struct timespec* target, const struct timespec* now) {
+    time_t sec = target->tv_sec - now->tv_sec;
+    long nsec = target->tv_nsec - now->tv_nsec;
+    if (sec < 0 || (sec == 0 && nsec <= 0))
+        return 0;
+
+    long ms = sec * 1000 + nsec / 1000000;
+    if (ms > INT_MAX)
+        return INT_MAX;
+    return (int)ms;
+}
+
+static void add_seconds(struct timespec* ts, unsigned int seconds) {
+    ts->tv_sec += (time_t)seconds;
+}
+
+enum timeout_reason {
+    TIMEOUT_NONE,
+    TIMEOUT_IO,
+    TIMEOUT_SEND_DELAY,
+    TIMEOUT_QUIT,
+};
+
 int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_buf* to_out) {
-    fd_set readfds, writefds;
-    int maxfd;
-    int stdin_closed = 0;
-    int net_closed = 0;
+    bool stdin_open = true;
+    bool send_delay_active = false;
+    bool quit_deadline_active = false;
+    struct timespec send_resume = {0, 0};
+    struct timespec quit_deadline = {0, 0};
+
     int exit_code = 0;
 
-    // Initialize buffers if not already
     if (!to_net->data) {
         to_net->data = ctx->buf_stdin ? ctx->buf_stdin : malloc(NC_BIGSIZ);
         to_net->cap = NC_BIGSIZ;
         to_net->len = 0;
         to_net->off = 0;
+        if (!ctx->buf_stdin)
+            ctx->buf_stdin = to_net->data;
     }
     if (!to_out->data) {
         to_out->data = ctx->buf_net ? ctx->buf_net : malloc(NC_BIGSIZ);
         to_out->cap = NC_BIGSIZ;
         to_out->len = 0;
         to_out->off = 0;
+        if (!ctx->buf_net)
+            ctx->buf_net = to_out->data;
     }
 
-    // If we have saved stdin buffer from multi-mode
-    if (ctx->insaved > 0) {
-        // Already loaded into ctx->buf_stdin, simulate read
+    if (ctx->insaved > 0 && ctx->buf_stdin) {
         to_net->len = ctx->insaved;
         to_net->off = 0;
         if (ctx->single_mode) {
-            ctx->insaved = 0;  // one-off
+            ctx->insaved = 0;
         }
         else {
-            // scanning mode, close stdin
+            stdin_open = false;
             close(STDIN_FILENO);
-            stdin_closed = 1;
         }
     }
 
-    // Delay before sending if interval specified
-    if (ctx->interval > 0) {
-        sleep(ctx->interval);
-    }
+    while (exit_code == 0) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
 
-    while (!net_closed) {
         if (ctx->got_signal) {
             exit_code = 128 + (int)ctx->got_signal;
             break;
         }
-        if (ctx->quit_flag) {
-            net_closed = 1;
+
+        if (send_delay_active && timespec_reached(&send_resume, &now))
+            send_delay_active = false;
+
+        if (quit_deadline_active && timespec_reached(&quit_deadline, &now))
             break;
+
+        struct pollfd pfds[3];
+        nfds_t n = 0;
+
+        // Network fd
+        pfds[n].fd = netfd;
+        pfds[n].events = 0;
+        pfds[n].revents = 0;
+        if (to_out->len == 0)
+            pfds[n].events |= POLLIN;
+        if (to_net->len > 0 && !send_delay_active)
+            pfds[n].events |= POLLOUT;
+        n++;
+
+        // Stdin
+        if (stdin_open && to_net->len == 0) {
+            pfds[n].fd = STDIN_FILENO;
+            pfds[n].events = POLLIN;
+            pfds[n].revents = 0;
+            n++;
         }
 
-        FD_ZERO(&readfds);
-        FD_ZERO(&writefds);
-        maxfd = 0;
-
-        // Setup read fds
-        if (!stdin_closed && to_net->len == 0) {
-            FD_SET(STDIN_FILENO, &readfds);
-            if (STDIN_FILENO > maxfd)
-                maxfd = STDIN_FILENO;
-        }
-        if (!net_closed && to_out->len == 0) {
-            FD_SET(netfd, &readfds);
-            if (netfd > maxfd)
-                maxfd = netfd;
-        }
-
-        // Setup write fds
-        if (to_net->len > 0) {
-            FD_SET(netfd, &writefds);
-            if (netfd > maxfd)
-                maxfd = netfd;
-        }
+        // Stdout
         if (to_out->len > 0) {
-            FD_SET(STDOUT_FILENO, &writefds);
-            if (STDOUT_FILENO > maxfd)
-                maxfd = STDOUT_FILENO;
+            pfds[n].fd = STDOUT_FILENO;
+            pfds[n].events = POLLOUT;
+            pfds[n].revents = 0;
+            n++;
         }
 
-        // Timeout handling
-        struct timeval timeout, *timeout_ptr = NULL;
-        if (ctx->timeout > 0 && stdin_closed) {
-            timeout.tv_sec = ctx->timeout;
-            timeout.tv_usec = 0;
-            timeout_ptr = &timeout;
+        enum timeout_reason reason = TIMEOUT_NONE;
+        int timeout_ms = -1;
+        if (ctx->timeout > 0) {
+            timeout_ms = (int)(ctx->timeout * 1000);
+            reason = TIMEOUT_IO;
+        }
+        if (send_delay_active) {
+            int ms = ms_until(&send_resume, &now);
+            if (timeout_ms < 0 || ms < timeout_ms) {
+                timeout_ms = ms;
+                reason = TIMEOUT_SEND_DELAY;
+            }
+        }
+        if (quit_deadline_active) {
+            int ms = ms_until(&quit_deadline, &now);
+            if (timeout_ms < 0 || ms < timeout_ms) {
+                timeout_ms = ms;
+                reason = TIMEOUT_QUIT;
+            }
         }
 
-        int sel = select(maxfd + 1, &readfds, &writefds, NULL, timeout_ptr);
-        if (sel < 0) {
+        int prc = poll(pfds, n, timeout_ms);
+        if (prc < 0) {
             if (errno == EINTR)
                 continue;
-            nc_holler(ctx, "select error: %s", strerror(errno));
             exit_code = 1;
             break;
         }
-
-        if (sel == 0) {
-            // Timeout with stdin closed -> assume net dead
-            if (stdin_closed) {
-                net_closed = 1;
+        if (prc == 0) {
+            if (reason == TIMEOUT_SEND_DELAY) {
+                send_delay_active = false;
+                continue;
+            }
+            if (reason == TIMEOUT_QUIT)
                 break;
+            if (reason == TIMEOUT_IO) {
+                errno = ETIMEDOUT;
+                exit_code = 1;
+                break;
+            }
+            continue;
+        }
+
+        nfds_t idx = 0;
+        struct pollfd* net_pfd = &pfds[idx++];
+        struct pollfd* in_pfd = NULL;
+        struct pollfd* out_pfd = NULL;
+
+        if (stdin_open && to_net->len == 0)
+            in_pfd = &pfds[idx++];
+        if (to_out->len > 0)
+            out_pfd = &pfds[idx++];
+
+        // Network readable
+        if (net_pfd->revents & POLLIN) {
+            ssize_t r = buf_read_into(netfd, to_out);
+            if (r == 0) {
+                break;  // remote closed
+            }
+            else if (r < 0) {
+                if (errno != EINTR)
+                    exit_code = 1;
+            }
+            else {
+#ifdef TELNET
+                if (ctx->telnet && to_out->len > 0)
+                    nc_telnet_negotiate(ctx, netfd, to_out->data, to_out->len);
+#endif
+                if (ctx->hexdump_enabled && ctx->hexdump_fd > 0)
+                    nc_hexdump_log(ctx, 1, to_out->data, to_out->len);
             }
         }
 
-        // Read from stdin
-        if (FD_ISSET(STDIN_FILENO, &readfds)) {
-            ssize_t r = read(STDIN_FILENO, to_net->data, to_net->cap);
+        // Network writable
+        if ((net_pfd->revents & POLLOUT) && to_net->len > 0 && !send_delay_active) {
+            const unsigned char* start = to_net->data + to_net->off;
+            size_t remaining = to_net->len - to_net->off;
+            if (ctx->interval > 0) {
+                const unsigned char* nl = memchr(start, '\n', remaining);
+                if (nl)
+                    remaining = (size_t)(nl - start + 1);
+            }
+
+            ssize_t w = write(netfd, start, remaining);
+            if (w > 0) {
+                if (ctx->hexdump_enabled && ctx->hexdump_fd > 0)
+                    nc_hexdump_log(ctx, 0, start, (size_t)w);
+                to_net->off += (size_t)w;
+                ctx->wrote_net += (uint64_t)w;
+                if (to_net->off >= to_net->len)
+                    buf_reset(to_net);
+
+                if (ctx->interval > 0) {
+                    clock_gettime(CLOCK_MONOTONIC, &send_resume);
+                    add_seconds(&send_resume, ctx->interval);
+                    send_delay_active = true;
+                }
+            }
+            else if (w < 0 && errno != EINTR) {
+                exit_code = 1;
+            }
+        }
+
+        // Stdout writable
+        if (out_pfd && (out_pfd->revents & POLLOUT)) {
+            ssize_t w = buf_write_from(STDOUT_FILENO, to_out);
+            if (w > 0) {
+                ctx->wrote_out += (uint64_t)w;
+            }
+            else if (w < 0 && errno != EINTR) {
+                exit_code = 1;
+            }
+        }
+
+        // Stdin readable / EOF
+        if (in_pfd && (in_pfd->revents & (POLLIN | POLLHUP))) {
+            ssize_t r = buf_read_into(STDIN_FILENO, to_net);
             if (r > 0) {
-                to_net->len = r;
-                to_net->off = 0;
-                // If scanning mode, save buffer and close stdin
                 if (!ctx->single_mode) {
-                    ctx->insaved = r;
+                    ctx->insaved = (unsigned int)r;
+                    stdin_open = false;
                     close(STDIN_FILENO);
-                    stdin_closed = 1;
                 }
             }
             else if (r == 0) {
-                // EOF on stdin
-                close(STDIN_FILENO);
-                stdin_closed = 1;
+                stdin_open = false;
                 shutdown(netfd, SHUT_WR);
                 if (ctx->quit_after_eof == 0) {
-                    // Exit immediately
-                    close(netfd);
-                    net_closed = 1;
                     break;
                 }
                 else if (ctx->quit_after_eof > 0) {
-                    // Schedule quit after delay
-                    alarm(ctx->quit_after_eof);
+                    clock_gettime(CLOCK_MONOTONIC, &quit_deadline);
+                    add_seconds(&quit_deadline, (unsigned int)ctx->quit_after_eof);
+                    quit_deadline_active = true;
                 }
             }
-            else {
-                nc_holler(ctx, "stdin read error: %s", strerror(errno));
+            else if (errno != EINTR) {
+                exit_code = 1;
             }
         }
 
-        // Read from net
-        if (FD_ISSET(netfd, &readfds)) {
-            ssize_t r = read(netfd, to_out->data, to_out->cap);
-            if (r > 0) {
-                to_out->len = r;
-                to_out->off = 0;
-                // Telnet negotiation if enabled
-#ifdef TELNET
-                if (ctx->telnet) {
-                    nc_telnet_negotiate(ctx, netfd, to_out->data, r);
-                }
-#endif
-                // Hexdump if enabled
-                if (ctx->hexdump_enabled && ctx->hexdump_fd > 0) {
-                    nc_hexdump_log(ctx, 1, to_out->data, (size_t)r);
-                }
-            }
-            else if (r == 0) {
-                // Net closed
-                net_closed = 1;
+        if (net_pfd->revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            if (buf_empty(to_out) && buf_empty(to_net))
                 break;
-            }
-            else {
-                nc_holler(ctx, "net read error: %s", strerror(errno));
-            }
-        }
-
-        // Write to net
-        if (FD_ISSET(netfd, &writefds) && to_net->len > 0) {
-            size_t to_write = to_net->len;
-            if (ctx->interval > 0) {
-                // Send line by line
-                to_write = find_line(to_net->data + to_net->off, to_net->len - to_net->off);
-            }
-            size_t send_off = to_net->off;
-            ssize_t w = write(netfd, to_net->data + send_off, to_write);
-            if (w > 0) {
-                if (ctx->hexdump_enabled && ctx->hexdump_fd > 0) {
-                    nc_hexdump_log(ctx, 0, to_net->data + send_off, (size_t)w);
-                }
-                to_net->off += (size_t)w;
-                ctx->wrote_net += (uint64_t)w;
-                if (to_net->off >= to_net->len) {
-                    to_net->len = 0;
-                    to_net->off = 0;
-                }
-                // If interval, sleep after each line
-                if (ctx->interval > 0 && w == (ssize_t)to_write) {
-                    sleep(ctx->interval);
-                }
-            }
-            else {
-                nc_holler(ctx, "net write error: %s", strerror(errno));
-                net_closed = 1;
-                break;
-            }
-        }
-
-        // Write to stdout
-        if (FD_ISSET(STDOUT_FILENO, &writefds) && to_out->len > 0) {
-            ssize_t w = write(STDOUT_FILENO, to_out->data + to_out->off, to_out->len - to_out->off);
-            if (w > 0) {
-                to_out->off += (size_t)w;
-                ctx->wrote_out += (uint64_t)w;
-                if (to_out->off >= to_out->len) {
-                    to_out->len = 0;
-                    to_out->off = 0;
-                }
-            }
-            else {
-                nc_holler(ctx, "stdout write error: %s", strerror(errno));
-            }
         }
     }
 
     close(netfd);
+    ctx->netfd = -1;
     return exit_code;
 }
