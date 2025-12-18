@@ -145,7 +145,7 @@ These preserve option semantics but improve correctness
 ## Original CLI compatibility backlog
 
 * Deliberately remove source-routing flags `-g` / `-G`
-* Clearly document deprecation in
+* Clearly document deprecation in (done)
 
   * README.md
   * nc.1

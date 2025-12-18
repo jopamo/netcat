@@ -27,7 +27,7 @@ listen for inbound:    nc -l -p port [-options] [hostname] [port]
 - UDP: `./build/nc -u example.com 1234`
 - Port scan: `./build/nc -v -z -r example.com 20-80`
 
-Original source-routing options `-g`/`-G` are not implemented in this fork (see TODO). The manual now lives at `man/nc.1`; contributor notes are in `HACKING.md` and architecture notes in `DESIGN.md`.
+Source routing options (-g/-G) have been removed; this fork intentionally omits the legacy LSRR/SSRR code paths. The manual now lives at `man/nc.1`; contributor notes are in `HACKING.md` and architecture notes in `DESIGN.md`.
 
 ## Build
 

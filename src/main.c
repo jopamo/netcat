@@ -91,6 +91,7 @@ static void show_help(struct nc_ctx* ctx) {
     nc_holler(ctx, "  -w secs          Timeout for connects and reads");
     nc_holler(ctx, "  -z               Zero-I/O mode (port scanning)");
     nc_holler(ctx, "");
+    nc_holler(ctx, "Removed: Source routing options (-g/-G) have been removed");
     nc_holler(ctx, "Ports can be single values or ranges: lo-hi");
     nc_ctx_cleanup(ctx);
     exit(0);
