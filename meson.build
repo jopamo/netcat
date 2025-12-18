@@ -48,16 +48,7 @@ conf = configuration_data()
 conf.set10('NC_ENABLE_IPV6', ipv6_enabled)
 configure_file(output: 'config.h', configuration: conf)
 
-executable(
-  'nc',
-  'netcat.c',
-  include_directories: include_directories('.'),
-  dependencies: deps,
-  install: true
-)
-
-executable(
-  'nc-modern',
+nc_sources = [
   'src/main.c',
   'src/nc_ctx.c',
   'src/resolve.c',
@@ -66,9 +57,16 @@ executable(
   'src/telnet.c',
   'src/exec.c',
   'src/hexdump.c',
-  include_directories: [include_directories('.'), include_directories('src')],
+]
+
+nc_includes = [include_directories('.'), include_directories('src')]
+
+executable(
+  'nc',
+  nc_sources,
+  include_directories: nc_includes,
   dependencies: deps,
-  install: false
+  install: true
 )
 
 scripts = files(
@@ -84,7 +82,7 @@ scripts = files(
 )
 install_data(scripts, install_dir:get_option('bindir'), install_mode:'rwxr-xr-x')
 
-install_man('nc.1')
+install_man('man/nc.1')
 
 docdir = get_option('datadir') / 'doc' / meson.project_name()
 install_data(['README', 'README.md'], install_dir:docdir)

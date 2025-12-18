@@ -1,49 +1,12 @@
-#include "nc_ctx.h"
+#include "io_pump.h"
 #include "telnet.h"
+#include "hexdump.h"
 #include <poll.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
-
-struct io_buf {
-    unsigned char* data;
-    size_t cap;
-    size_t len;
-    size_t off;
-};
-
-static bool buf_empty(const struct io_buf* b) {
-    return b->off >= b->len;
-}
-
-static void buf_reset(struct io_buf* b) {
-    b->len = 0;
-    b->off = 0;
-}
-
-static ssize_t buf_read_into(int fd, struct io_buf* b) {
-    if (b->len != 0)
-        return 0;
-    ssize_t r = read(fd, b->data, b->cap);
-    if (r > 0) {
-        b->len = (size_t)r;
-        b->off = 0;
-    }
-    return r;
-}
-
-static ssize_t buf_write_from(int fd, struct io_buf* b) {
-    if (buf_empty(b))
-        return 0;
-    ssize_t r = write(fd, b->data + b->off, b->len - b->off);
-    if (r > 0) {
-        b->off += (size_t)r;
-        if (buf_empty(b))
-            buf_reset(b);
-    }
-    return r;
-}
+#include <signal.h>
 
 // Find next newline in buffer (like original findline)
 static size_t find_line(const unsigned char* buf, size_t len) {
@@ -97,6 +60,15 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
     }
 
     while (!net_closed) {
+        if (ctx->got_signal) {
+            exit_code = 128 + (int)ctx->got_signal;
+            break;
+        }
+        if (ctx->quit_flag) {
+            net_closed = 1;
+            break;
+        }
+
         FD_ZERO(&readfds);
         FD_ZERO(&writefds);
         maxfd = 0;
@@ -167,9 +139,9 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
                 // EOF on stdin
                 close(STDIN_FILENO);
                 stdin_closed = 1;
+                shutdown(netfd, SHUT_WR);
                 if (ctx->quit_after_eof == 0) {
                     // Exit immediately
-                    shutdown(netfd, SHUT_WR);
                     close(netfd);
                     net_closed = 1;
                     break;
@@ -198,7 +170,7 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
 #endif
                 // Hexdump if enabled
                 if (ctx->hexdump_enabled && ctx->hexdump_fd > 0) {
-                    // TODO: call hexdump function
+                    nc_hexdump_log(ctx, 1, to_out->data, (size_t)r);
                 }
             }
             else if (r == 0) {
@@ -218,17 +190,17 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
                 // Send line by line
                 to_write = find_line(to_net->data + to_net->off, to_net->len - to_net->off);
             }
-            ssize_t w = write(netfd, to_net->data + to_net->off, to_write);
+            size_t send_off = to_net->off;
+            ssize_t w = write(netfd, to_net->data + send_off, to_write);
             if (w > 0) {
-                to_net->off += w;
-                ctx->wrote_net += w;
+                if (ctx->hexdump_enabled && ctx->hexdump_fd > 0) {
+                    nc_hexdump_log(ctx, 0, to_net->data + send_off, (size_t)w);
+                }
+                to_net->off += (size_t)w;
+                ctx->wrote_net += (uint64_t)w;
                 if (to_net->off >= to_net->len) {
                     to_net->len = 0;
                     to_net->off = 0;
-                }
-                // Hexdump if enabled
-                if (ctx->hexdump_enabled && ctx->hexdump_fd > 0) {
-                    // TODO: call hexdump function
                 }
                 // If interval, sleep after each line
                 if (ctx->interval > 0 && w == (ssize_t)to_write) {
@@ -246,8 +218,8 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd, struct io_buf* to_net, struct io_b
         if (FD_ISSET(STDOUT_FILENO, &writefds) && to_out->len > 0) {
             ssize_t w = write(STDOUT_FILENO, to_out->data + to_out->off, to_out->len - to_out->off);
             if (w > 0) {
-                to_out->off += w;
-                ctx->wrote_out += w;
+                to_out->off += (size_t)w;
+                ctx->wrote_out += (uint64_t)w;
                 if (to_out->off >= to_out->len) {
                     to_out->len = 0;
                     to_out->off = 0;

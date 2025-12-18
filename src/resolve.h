@@ -24,4 +24,8 @@ int nc_resolve_local_address(struct nc_ctx* ctx, const char* addr_str);
 int nc_random_ports_init(struct nc_ctx* ctx, unsigned short lo, unsigned short hi);
 unsigned short nc_random_ports_next(struct nc_ctx* ctx);
 
+// Sockaddr helpers
+void nc_set_port(struct sockaddr_storage* ss, unsigned short port);
+unsigned short nc_get_port(const struct sockaddr_storage* ss);
+
 #endif  // RESOLVE_H

@@ -7,3 +7,7 @@ core
 /*.tar.*
 
 build*
+# Agent-facing symlinks
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md

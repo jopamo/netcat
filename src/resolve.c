@@ -16,6 +16,15 @@ int nc_resolve_one(const char* host,
                    struct sockaddr_storage* out,
                    socklen_t* out_len,
                    bool numeric_only) {
+#if !NC_HAVE_IPV6
+    if (family == AF_UNSPEC)
+        family = AF_INET;
+    else if (family == AF_INET6) {
+        errno = EAFNOSUPPORT;
+        return -1;
+    }
+#endif
+
     struct addrinfo hints = {0};
     hints.ai_family = family;  // AF_UNSPEC / AF_INET / AF_INET6
     hints.ai_socktype = nc_socktype(proto);
@@ -127,9 +136,19 @@ int nc_resolve_local_address(struct nc_ctx* ctx, const char* addr_str) {
     if (!addr_str)
         return -1;
 
+    int family = ctx->addr_family;
+#if !NC_HAVE_IPV6
+    if (family == AF_UNSPEC)
+        family = AF_INET;
+    else if (family == AF_INET6) {
+        errno = EAFNOSUPPORT;
+        return -1;
+    }
+#endif
+
     // Use getaddrinfo with AI_PASSIVE?
     struct addrinfo hints = {0};
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = family == 0 ? AF_UNSPEC : family;
     hints.ai_socktype = nc_socktype(ctx->proto);
     hints.ai_flags = AI_NUMERICHOST | AI_PASSIVE;
 
@@ -187,5 +206,32 @@ unsigned short nc_random_ports_next(struct nc_ctx* ctx) {
             return p;
         }
     }
+    return 0;
+}
+
+void nc_set_port(struct sockaddr_storage* ss, unsigned short port) {
+    if (!ss)
+        return;
+    if (ss->ss_family == AF_INET) {
+        ((struct sockaddr_in*)ss)->sin_port = htons(port);
+    }
+#if NC_HAVE_IPV6
+    else if (ss->ss_family == AF_INET6) {
+        ((struct sockaddr_in6*)ss)->sin6_port = htons(port);
+    }
+#endif
+}
+
+unsigned short nc_get_port(const struct sockaddr_storage* ss) {
+    if (!ss)
+        return 0;
+    if (ss->ss_family == AF_INET) {
+        return ntohs(((const struct sockaddr_in*)ss)->sin_port);
+    }
+#if NC_HAVE_IPV6
+    if (ss->ss_family == AF_INET6) {
+        return ntohs(((const struct sockaddr_in6*)ss)->sin6_port);
+    }
+#endif
     return 0;
 }

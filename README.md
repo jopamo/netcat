@@ -1,4 +1,4 @@
-# Netcat (Based on Hobbit's BSD Version)
+# Netcat
 
        /\_/\
       / 0 0 \
@@ -11,83 +11,58 @@
      (      ___
       \__.=|___E
 
+Netcat (`nc`) here is a C17 rewrite/fork of the classic Hobbit BSD release (help banner still reports `[v1.10]`). It keeps the original feel while using Meson/Ninja, `getaddrinfo`, and nonblocking I/O.
 
-Netcat (`nc`) is a simple Unix utility which reads and writes data across network connections, using the TCP or UDP protocol.
-It is designed to be a reliable "back-end" tool that can be used directly or easily driven by other programs and scripts.
-At the same time, it is a feature-rich network debugging and exploration tool, able to create almost any kind of connection you need.
-WS
-> **Netcat, or "nc" as the actual program is named, should have been supplied long ago as another one of those cryptic but standard Unix tools.**
-
----
-
-## What is Netcat?
-
-In its simplest use, `nc host port` creates a TCP connection to the given port on the given target host.
-Your standard input is sent to the host, and anything that comes back is sent to your standard output.
-This continues until the network side of the connection shuts down.
-Unlike most other applications, Netcat does **not** exit after an end-of-file on standard input—it stays running until the network closes.
-
-Netcat can also function as a server, listening for inbound connections on arbitrary ports.
-It doesn't really care if it runs in "client" or "server" mode—it simply shovels data back and forth until there isn't any more left.
-
-It can also do this via UDP, making Netcat a "udp telnet-like" application for testing UDP-mode servers.
-
----
-
-## Major Features
-
-- Outbound or inbound connections, TCP or UDP, to/from any ports
-- Full DNS forward/reverse checking, with appropriate warnings
-- Ability to use any local source port and/or source address
-- Built-in port-scanning capabilities, with randomizer
-- Loose source-routing support
-- Reads command line arguments from standard input
-- Slow-send mode (one line every N seconds)
-- Hex dump of transmitted and received data
-- Optional "exec" of another program for established connections
-- Optional telnet-options responder
-
----
-
-## Building
-
-Run `make` to build Netcat.
-Check the Makefile for any system-specific flags or dependencies.
-
-Typical build:
+## Quick usage
 
 ```sh
-make
-````
+$ nc -h
+[v1.10]
+connect to somewhere:  nc [-options] hostname port[s] [ports] ...
+listen for inbound:    nc -l -p port [-options] [hostname] [port]
+```
 
-The binary will be named `nc`.
+- TCP client: `./build/nc example.com 80`
+- TCP listener: `./build/nc -l -p 1234`
+- UDP: `./build/nc -u example.com 1234`
+- Port scan: `./build/nc -v -z -r example.com 20-80`
 
----
+Original source-routing options `-g`/`-G` are not implemented in this fork (see TODO). The manual now lives at `man/nc.1`; contributor notes are in `HACKING.md` and architecture notes in `DESIGN.md`.
 
-## Usage
+## Build
 
-* Outbound connection:
+```sh
+meson setup build -Dipv6=disabled -Dtelnet=true -Dexec_hole=false
+meson compile -C build
+./build/nc -h
+```
 
-  ```sh
-  nc example.com 80
-  ```
+Feature flags: `-Dipv6=enabled|disabled|auto`, `-Dtelnet=true|false`, `-Dverbose_debug=true|false`, `-Dexec_hole=true|false` (enables `-e`/`-c`).
 
-* Inbound "server" mode:
+## Option examples (one for every supported flag)
 
-  ```sh
-  nc -l -p 1234
-  ```
+- `-4` IPv4 only: `nc -4 example.com 80`
+- `-6` IPv6 only (build with `-Dipv6=enabled`): `nc -6 2001:db8::1 443`
+- `-b` Allow broadcast (UDP): `echo hi | nc -u -b 255.255.255.255 9999`
+- `-c cmd` Exec via `/bin/sh` (requires `-Dexec_hole=true`): `nc -c 'echo hi' example.com 80`
+- `-e prog` Exec program (requires `-Dexec_hole=true`): `nc -e /usr/bin/id example.com 80`
+- `-h` Help banner: `nc -h`
+- `-i secs` Delay between sends/scans: `nc -i 2 -v -z target 20-30`
+- `-l` Listen mode: `nc -l -p 1234`
+- `-n` Numeric-only addresses: `nc -n 192.0.2.10 22`
+- `-o file` Hex dump traffic: `nc -o traffic.hex example.com 443`
+- `-p port` Local source port: `nc -p 4444 example.com 80`
+- `-q secs` Quit after stdin EOF + delay: `echo hi | nc -q 1 example.com 80`
+- `-r` Randomize port order: `nc -v -z -r target 1-1024`
+- `-s addr` Local source address: `nc -s 192.0.2.15 example.com 80`
+- `-t` Answer TELNET negotiation (build with `-Dtelnet=true`): `nc -t telnet.example.com 23`
+- `-u` UDP mode: `nc -u example.com 9999`
+- `-v` Verbose (repeat for more): `nc -v example.com 80`
+- `-w secs` Timeout for connects/reads: `nc -w 3 example.com 80`
+- `-z` Zero-I/O scan mode: `nc -v -z example.com 22-25`
 
-* UDP mode:
+## Notes
 
-  ```sh
-  nc -u example.com 1234
-  ```
-
-* Port scan with randomizer:
-
-  ```sh
-  nc -v -z -r example.com 20-80
-  ```
-
-See `nc.1` for the full man page and more options.
+- Hex dumps with `-o` disable when exec-after-connect is requested (`-e`/`-c`) for safety.
+- If no args are given, `nc` reads a command line from stdin (mirrors historical behavior).
+- IPv6 support depends on headers present and the Meson `ipv6` feature switch.

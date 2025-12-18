@@ -1,9 +1,17 @@
 #pragma once
+#include "config.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+
+#if NC_ENABLE_IPV6
+#define NC_HAVE_IPV6 1
+#else
+#define NC_HAVE_IPV6 0
+#endif
 
 #define NC_BIGSIZ 8192
 #define NC_MAXHOSTNAMELEN 256
@@ -21,6 +29,7 @@ struct nc_ctx {
     // Protocol mode
     enum nc_proto proto;
     bool listen_mode;
+    int addr_family;  // AF_UNSPEC / AF_INET / AF_INET6
 
     // Options/flags (matching original o_* globals)
     bool numeric_only;
@@ -29,6 +38,7 @@ struct nc_ctx {
     bool zero_io;
     bool telnet;
     bool hexdump_enabled;
+    const char* hexdump_path;
     bool random_ports;
     bool all_a_records;     // -a (likely to be removed)
     bool holler_to_stderr;  // original o_holler_stderr
@@ -41,6 +51,8 @@ struct nc_ctx {
     // Counters
     uint64_t wrote_out;
     uint64_t wrote_net;
+    uint64_t hexdump_sent_off;
+    uint64_t hexdump_recv_off;
 
     // Exec feature
     const char* exec_prog;
@@ -73,6 +85,12 @@ struct nc_ctx {
     char remote_host[NC_MAXHOSTNAMELEN];
     char remote_service[64];
 
+    // Expected peer when listening
+    bool expect_peer;
+    struct sockaddr_storage expected_peer;
+    socklen_t expected_peer_len;
+    unsigned short expected_port;
+
     // Port info (like original portpoop)
     char port_name[64];
     unsigned short port_num;
@@ -83,6 +101,10 @@ struct nc_ctx {
     // Internal buffers for I/O pump
     struct io_buf* to_net_buf;
     struct io_buf* to_out_buf;
+
+    // Signal coordination
+    volatile sig_atomic_t got_signal;
+    volatile sig_atomic_t quit_flag;
 };
 
 // Context management

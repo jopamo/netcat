@@ -2,38 +2,42 @@
 
 Goal: Rework the K&R-era netcat-like implementation into modern, maintainable C11
 Constraints:
-- IPv6 is **optional** via Meson feature and **disabled by default**
-- Remove IP_OPTIONS / LSRR and all source-routing flags/paths
-- Keep exec feature (dangerous) and keep TELNET negotiation
-- Replace `select()` + FD_SETSIZE hacks and `alarm/setjmp` timeouts with nonblocking + `poll()`
-- Replace `gethostbyname/gethostbyaddr/h_errno/res_init` with `getaddrinfo/getnameinfo`
+- [x] IPv6 is **optional** via Meson feature and **disabled by default**
+- [x] Remove IP_OPTIONS / LSRR and all source-routing flags/paths
+- [x] Keep exec feature (dangerous) and keep TELNET negotiation
+- [ ] Replace `select()` + FD_SETSIZE hacks and `alarm/setjmp` timeouts with nonblocking + `poll()`
+- [ ] Replace `gethostbyname/gethostbyaddr/h_errno/res_init` with `getaddrinfo/getnameinfo`
+
+## Original CLI compatibility backlog
+
+- [ ] Reintroduce historical source-routing flags `-g`/`-G` (currently removed for safety/portability) or document a deliberate deprecation plan.
 
 ---
 
 ## 0) Project structure split
 
 - [x] Create modules (even if you keep a single binary)
-  - `src/main.c` CLI + wiring
-  - `src/nc_ctx.h` / `src/nc_ctx.c` global state -> context struct
-  - `src/resolve.c` address resolution
-  - `src/connect.c` connect/listen helpers
-  - `src/io_pump.c` bidirectional copy loop using poll
-  - `src/telnet.c` TELNET negotiation helper
-  - `src/hexdump.c` optional traffic dump (if you keep `-o file`)
-  - `src/exec.c` exec feature (gated, explicit warnings)
+  - [x] `src/main.c` CLI + wiring
+  - [x] `src/nc_ctx.h` / `src/nc_ctx.c` global state -> context struct
+  - [x] `src/resolve.c` address resolution
+  - [x] `src/connect.c` connect/listen helpers
+  - [x] `src/io_pump.c` bidirectional copy loop using poll
+  - [x] `src/telnet.c` TELNET negotiation helper
+  - [x] `src/hexdump.c` optional traffic dump (if you keep `-o file`)
+  - [x] `src/exec.c` exec feature (gated, explicit warnings)
 
 ---
 
 ## 1) Meson: IPv6 optional feature, default disabled
 
 - [x] Add a Meson feature option (default `disabled`)
-  - `meson_options.txt`
+  - [x] `meson_options.txt`
 
 ```meson
 option('ipv6', type: 'feature', value: 'disabled', description: 'Enable IPv6 support')
 ````
 
-* [x] In `meson.build`, detect headers and set a config define
+- [x] In `meson.build`, detect headers and set a config define
 
 ```meson
 project('nc', 'c', default_options: ['c_std=c11', 'warning_level=3'])
@@ -71,7 +75,7 @@ executable('nc',
 )
 ```
 
-* [ ] In C, include config and guard IPv6 code
+- [x] In C, include config and guard IPv6 code
 
 ```c
 #include "config.h"
@@ -87,12 +91,12 @@ executable('nc',
 
 ## 2) Delete IP_OPTIONS / LSRR and related CLI flags
 
-* [ ] Remove:
+- [x] Remove:
 
-  * `-g`, `-G`, `gatesidx`, `gatesptr`, `gates` arrays
-  * `optbuf` source-routing builder
-  * any `#ifdef IP_OPTIONS` blocks
-* [ ] Update help text accordingly
+  - [x] `-g`, `-G`, `gatesidx`, `gatesptr`, `gates` arrays
+  - [x] `optbuf` source-routing builder
+  - [x] any `#ifdef IP_OPTIONS` blocks
+- [x] Update help text accordingly
 
 Code example (what stays): nothing
 Code example (what gets deleted): all `setsockopt(..., IP_OPTIONS, ...)` paths
@@ -101,7 +105,7 @@ Code example (what gets deleted): all `setsockopt(..., IP_OPTIONS, ...)` paths
 
 ## 3) Replace global variables with a single context struct
 
-* [ ] Create `struct nc_ctx` and pass it everywhere
+- [ ] Create `struct nc_ctx` and pass it everywhere
 
 `src/nc_ctx.h`:
 
@@ -139,7 +143,7 @@ struct nc_ctx {
 };
 ```
 
-* [ ] Replace `holler/bail` with modern logging helpers
+- [ ] Replace `holler/bail` with modern logging helpers
 
 ```c
 static void nc_logf(struct nc_ctx* ctx, const char* fmt, ...) {
@@ -174,12 +178,12 @@ static void nc_die(struct nc_ctx* ctx, const char* fmt, ...) {
 
 ## 4) Replace resolver code with getaddrinfo/getnameinfo
 
-* [ ] Remove:
+- [ ] Remove:
 
-  * `struct host_poop`, `gethostpoop`, `gethost6poop`
-  * `comparehosts*`, `h_errno`, `res_init`, resolver tables
+  - [ ] `struct host_poop`, `gethostpoop`, `gethost6poop`
+  - [ ] `comparehosts*`, `h_errno`, `res_init`, resolver tables
 
-* [ ] New helper: resolve one destination (first match)
+- [ ] New helper: resolve one destination (first match)
 
 `src/resolve.c`:
 
@@ -215,7 +219,7 @@ int nc_resolve_one(const char* host, const char* service,
 }
 ```
 
-* [ ] Optional: reverse lookup for verbose prints using `getnameinfo()`
+- [ ] Optional: reverse lookup for verbose prints using `getnameinfo()`
 
 ```c
 int nc_reverse_name(const struct sockaddr* sa, socklen_t slen,
@@ -230,9 +234,9 @@ int nc_reverse_name(const struct sockaddr* sa, socklen_t slen,
 
 ## 5) Connect timeout: remove alarm/setjmp and use nonblocking + poll
 
-* [ ] Delete:
+- [ ] Delete:
 
-  * `jmp_buf`, `tmtravel`, `arm_timer`, all `setjmp/longjmp` usage
+  - [ ] `jmp_buf`, `tmtravel`, `arm_timer`, all `setjmp/longjmp` usage
 
 `src/connect.c`:
 
@@ -287,12 +291,12 @@ done:
 
 ## 6) Replace select()+FD_SETSIZE hacks with poll-based pump
 
-* [ ] Delete:
+- [ ] Delete:
 
-  * `FD_SETSIZE` redefines
-  * `ding1/ding2`, `select(16, ...)` calls
-  * `findline()` throttling logic that assumes fixed sizes
-* [ ] Implement a clean “pump” loop
+  - [ ] `FD_SETSIZE` redefines
+  - [ ] `ding1/ding2`, `select(16, ...)` calls
+  - [ ] `findline()` throttling logic that assumes fixed sizes
+- [ ] Implement a clean “pump” loop
 
 `src/io_pump.c` (core skeleton):
 
@@ -427,18 +431,18 @@ int nc_pump_io(struct nc_ctx* ctx, int netfd,
 }
 ```
 
-* [ ] Reintroduce “interval per line” cleanly (optional)
+- [ ] Reintroduce “interval per line” cleanly (optional)
 
-  * Instead of `findline()` + partial writes, implement:
+  - [ ] Instead of `findline()` + partial writes, implement:
 
-    * if `interval_secs > 0`, only send up to newline per wake, then sleep
+    - [ ] if `interval_secs > 0`, only send up to newline per wake, then sleep
 
 ---
 
 ## 7) Telnet negotiation kept, but isolated
 
-* [ ] Move TELNET logic into `src/telnet.c`
-* [ ] Keep it pure: it should only inspect incoming bytes and write replies
+- [ ] Move TELNET logic into `src/telnet.c`
+- [ ] Keep it pure: it should only inspect incoming bytes and write replies
 
 Example stub:
 
@@ -482,9 +486,9 @@ void nc_telnet_negotiate(struct nc_ctx* ctx, int netfd, const unsigned char* buf
 
 ## 8) Keep exec feature, but fence it hard
 
-* [ ] Put exec in its own module and treat it as “dangerous”
-* [ ] Avoid implicit shell unless user explicitly requests
-* [ ] Prefer `execvp()` for direct exec; use `/bin/sh -c` only when asked
+- [ ] Put exec in its own module and treat it as “dangerous”
+- [ ] Avoid implicit shell unless user explicitly requests
+- [ ] Prefer `execvp()` for direct exec; use `/bin/sh -c` only when asked
 
 `src/exec.c`:
 
@@ -513,11 +517,10 @@ void nc_exec_after_connect(struct nc_ctx* ctx, int netfd) {
 }
 ```
 
-* [ ] Ensure CLI parsing forces explicit enable:
+- [ ] Ensure CLI parsing forces explicit enable:
 
-  * `-e /path/to/prog` direct exec
-  * `-c "cmd"` shell exec
-* [ ] Print a warning when exec is enabled (only once)
+  - [ ] `-e /path/to/prog` direct exec
+  - [ ] `-c "cmd"` shell exec
 
 ---
 
@@ -525,18 +528,18 @@ void nc_exec_after_connect(struct nc_ctx* ctx, int netfd) {
 
 The legacy code reads “Cmd line:” from stdin if argc==1. That’s weird and fragile.
 
-* [ ] Delete that behavior entirely
-* [ ] If you need “command from stdin”, add an explicit option later
+- [ ] Delete that behavior entirely
+- [ ] If you need “command from stdin”, add an explicit option later
 
 ---
 
 ## 10) Listening mode rework (TCP/UDP)
 
-* [ ] Implement `nc_listen()` and `nc_accept()` for TCP
-* [ ] For UDP listen:
+- [ ] Implement `nc_listen()` and `nc_accept()` for TCP
+- [ ] For UDP listen:
 
-  * bind and then `recvfrom(MSG_PEEK)` only if you really need “discover peer”
-  * or simpler: just `recvfrom()` and then `connect()` the socket to that peer
+  - [ ] bind and then `recvfrom(MSG_PEEK)` only if you really need “discover peer”
+  - [ ] or simpler: just `recvfrom()` and then `connect()` the socket to that peer
 
 Example snippet (UDP “lock to first peer”):
 
@@ -557,41 +560,41 @@ if (r >= 0) {
 
 ## 11) CLI/Help modernization
 
-* [ ] Convert all K&R function defs to ANSI prototypes
+- [ ] Convert all K&R function defs to ANSI prototypes
 
-* [ ] Replace unsafe formatting and fixed buffers with `snprintf`
+- [ ] Replace unsafe formatting and fixed buffers with `snprintf`
 
-* [ ] Keep flags you want:
+- [ ] Keep flags you want:
 
-  * `-4` (force IPv4)
-  * `-6` (force IPv6) only if `NC_ENABLE_IPV6` else error
-  * `-l` listen
-  * `-p` local port
-  * `-s` local source address
-  * `-u` UDP
-  * `-v` verbose
-  * `-n` numeric-only
-  * `-w secs` timeout
-  * `-i secs` interval
-  * `-z` zero-IO scanning
-  * `-t` telnet negotiation
-  * `-o file` hexdump file
-  * `-q secs` quit delay after stdin EOF
-  * `-e prog` exec
-  * `-c cmd` shell exec
+  - [ ] `-4` (force IPv4)
+  - [ ] `-6` (force IPv6) only if `NC_ENABLE_IPV6` else error
+  - [ ] `-l` listen
+  - [ ] `-p` local port
+  - [ ] `-s` local source address
+  - [ ] `-u` UDP
+  - [ ] `-v` verbose
+  - [ ] `-n` numeric-only
+  - [ ] `-w secs` timeout
+  - [ ] `-i secs` interval
+  - [ ] `-z` zero-IO scanning
+  - [ ] `-t` telnet negotiation
+  - [ ] `-o file` hexdump file
+  - [ ] `-q secs` quit delay after stdin EOF
+  - [ ] `-e prog` exec
+  - [ ] `-c cmd` shell exec
 
-* [ ] Remove flags related to LSRR/source routing:
+- [ ] Remove flags related to LSRR/source routing:
 
-  * `-g`, `-G` gone
-  * `-a` all-A-records: either remove or implement properly with getaddrinfo iteration
+  - [x] `-g`, `-G` gone
+  - [ ] `-a` all-A-records: either remove or implement properly with getaddrinfo iteration
 
 ---
 
 ## 12) Hexdump: keep but modernize
 
-* [ ] Move hexdump formatting into `src/hexdump.c`
-* [ ] Don’t use magic offsets and fixed “stage” buffers
-* [ ] Use a single line builder with bounded writes
+- [ ] Move hexdump formatting into `src/hexdump.c`
+- [ ] Don’t use magic offsets and fixed “stage” buffers
+- [ ] Use a single line builder with bounded writes
 
 Example simple dumper:
 
@@ -623,38 +626,38 @@ void nc_hexdump_write(int fd, const unsigned char* buf, size_t len, uint64_t bas
 
 ## 13) Security and hardening toggles
 
-* [ ] Add build flags in Meson for hardening
+- [ ] Add build flags in Meson for hardening
 
-  * `-D_FORTIFY_SOURCE=2` (glibc), `-fstack-protector-strong`, `-fPIE`, `-pie`, `-Wl,-z,relro,-z,now`
-* [ ] Treat exec as a deliberate choice; print warning
+  - [ ] `-D_FORTIFY_SOURCE=2` (glibc), `-fstack-protector-strong`, `-fPIE`, `-pie`, `-Wl,-z,relro,-z,now`
+- [ ] Treat exec as a deliberate choice; print warning
 
 ---
 
 ## 14) Testing checklist
 
-* [ ] IPv4 TCP connect: `./nc host 80`
-* [ ] IPv4 listen: `./nc -l -p 9999`
-* [ ] UDP send/recv: `./nc -u host 9999`
-* [ ] UDP listen + first peer connect: `./nc -u -l -p 9999`
-* [ ] Telnet negotiation: connect to a telnet-ish endpoint and verify responses
-* [ ] Exec:
+- [ ] IPv4 TCP connect: `./nc host 80`
+- [ ] IPv4 listen: `./nc -l -p 9999`
+- [ ] UDP send/recv: `./nc -u host 9999`
+- [ ] UDP listen + first peer connect: `./nc -u -l -p 9999`
+- [ ] Telnet negotiation: connect to a telnet-ish endpoint and verify responses
+- [ ] Exec:
 
-  * `./nc -e /bin/cat host 9999`
-  * `./nc -c "id" host 9999`
-* [ ] Timeout: `-w 1` to a blackhole address should exit with ETIMEDOUT
-* [ ] `-6` behavior:
+  - [ ] `./nc -e /bin/cat host 9999`
+  - [ ] `./nc -c "id" host 9999`
+- [ ] Timeout: `-w 1` to a blackhole address should exit with ETIMEDOUT
+- [ ] `-6` behavior:
 
-  * with ipv6 disabled: print a clear error
-  * with ipv6 enabled: connect/listen works
+  - [ ] with ipv6 disabled: print a clear error
+  - [ ] with ipv6 enabled: connect/listen works
 
 ---
 
 ## 15) Cleanup list (things to delete entirely)
 
-* [ ] K&R function definitions (all)
-* [ ] `FD_SETSIZE` redefinition and `select(16, ...)`
-* [ ] `alarm`, `signal(SIGALRM)`, `setjmp/longjmp`
-* [ ] `gethostbyname`, `gethostbyaddr`, `getservby*` (optional; can keep `getservbyname` if you want)
-* [ ] `netinet/in_systm.h`, `netinet/ip.h` include soup
-* [ ] LSRR/IP_OPTIONS source routing (`-g`, `-G`, `gates*`)
-* [ ] “read command line from stdin” argc==1 hack
+- [ ] K&R function definitions (all)
+- [ ] `FD_SETSIZE` redefinition and `select(16, ...)`
+- [ ] `alarm`, `signal(SIGALRM)`, `setjmp/longjmp`
+- [ ] `gethostbyname`, `gethostbyaddr`, `getservby*` (optional; can keep `getservbyname` if you want)
+- [x] `netinet/in_systm.h`, `netinet/ip.h` include soup
+- [x] LSRR/IP_OPTIONS source routing (`-g`, `-G`, `gates*`)
+- [ ] “read command line from stdin” argc==1 hack

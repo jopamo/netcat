@@ -24,6 +24,7 @@ GATE="192.157.69.11"
 NC="nc"             # Or ncat
 UCMD="$NC -v -w 8"
 MYHOST=$(hostname)
+SUPPORT_SRCRT=0
 
 # --- Ncat detection (not strictly needed but supports future option expansion) ---
 if $NC -h 2>&1 | grep -qi nmap; then
@@ -44,8 +45,12 @@ echo "[*] Quick TCP banner grabs"
 echo '' | $UCMD -w 9 -r "$VICTIM" 13 79 6667 2>&1
 echo '0' | $UCMD "$VICTIM" 79 2>&1
 
-echo "[*] LSRR/Refusal test"
-$UCMD -z -r -g "$GATE" "$VICTIM" 6473 2>&1
+if [ "$SUPPORT_SRCRT" -eq 1 ]; then
+    echo "[*] LSRR/Refusal test"
+    $UCMD -z -r -g "$GATE" "$VICTIM" 6473 2>&1
+else
+    echo "[!] Skipping LSRR/Refusal test (source routing unsupported)"
+fi
 
 echo "[*] Port scans (various)"
 $UCMD -r -z "$VICTIM" 6000 4000-4004 111 53 2105 137-140 1-20 540-550 95 87 2>&1
