@@ -61,13 +61,15 @@ nc_sources = [
 
 nc_includes = [include_directories('.'), include_directories('src')]
 
-executable(
+nc_bin = executable(
   'nc',
   nc_sources,
   include_directories: nc_includes,
   dependencies: deps,
   install: true
 )
+
+subdir('tests')
 
 scripts = files(
   'scripts/bsh',
