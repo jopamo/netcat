@@ -82,6 +82,11 @@ specify filename to exec after connect (use with caution).  See the
 .BR \-c
 option for enhanced functionality.
 .TP 13
+.BR \-\-exec\-inherit\-fds
+disable the default close-on-exec hardening in exec modes; by default nc closes
+all file descriptors except standard input/output/error before executing the
+requested program.
+.TP 13
 .BR \-h
 display help
 .TP 13

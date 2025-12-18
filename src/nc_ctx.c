@@ -34,6 +34,7 @@ void nc_ctx_init(struct nc_ctx* ctx) {
     ctx->hexdump_recv_off = 0;
     ctx->exec_prog = NULL;
     ctx->exec_use_sh = false;
+    ctx->exec_close_fds = true;
     ctx->single_mode = true;  // original Single = 1
     ctx->insaved = 0;
     ctx->loport = 0;

@@ -20,6 +20,13 @@
 
 static struct nc_ctx* g_ctx = NULL;
 
+enum { OPT_EXEC_INHERIT_FDS = 1000 };
+
+static const struct option long_options[] = {
+    {"exec-inherit-fds", no_argument, NULL, OPT_EXEC_INHERIT_FDS},
+    {0, 0, 0, 0},
+};
+
 static void handle_term(int sig) {
     if (g_ctx) {
         g_ctx->got_signal = sig;
@@ -53,6 +60,7 @@ static void show_help(struct nc_ctx* ctx) {
 #ifdef GAPING_SECURITY_HOLE
     nc_holler(ctx, "  -c cmd           Execute shell command [DANGEROUS]");
     nc_holler(ctx, "  -e prog          Execute program [DANGEROUS]");
+    nc_holler(ctx, "      --exec-inherit-fds  Disable exec close-fd hardening");
 #endif
     nc_holler(ctx, "  -h               This help text");
     nc_holler(ctx, "  -i secs          Delay interval for lines sent");
@@ -319,7 +327,7 @@ int main(int argc, char** argv) {
     int opt;
     opterr = 0;
 
-    while ((opt = getopt(argc, argv, "46abc:e:hi:lno:p:q:rs:tuvw:z")) != -1) {
+    while ((opt = getopt_long(argc, argv, "46abc:e:hi:lno:p:q:rs:tuvw:z", long_options, NULL)) != -1) {
         switch (opt) {
             case '4':
                 ctx.addr_family = AF_INET;
@@ -412,6 +420,13 @@ int main(int argc, char** argv) {
                 break;
             case 'z':
                 ctx.zero_io = true;
+                break;
+            case OPT_EXEC_INHERIT_FDS:
+#ifdef GAPING_SECURITY_HOLE
+                ctx.exec_close_fds = false;
+#else
+                nc_bail(&ctx, "--exec-inherit-fds requires exec support (-Dexec_hole=true)");
+#endif
                 break;
             case '?':
                 if (optopt == 'c' || optopt == 'e' || optopt == 'p' || optopt == 'i' || optopt == 'w' ||

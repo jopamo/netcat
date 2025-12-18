@@ -1,45 +1,77 @@
 # TODO.md — Fork/rewrite Netcat
 
-Goal: Rework the K&R-era netcat-like implementation into modern, maintainable C11 while preserving original CLI options and behavior by default, but improving low-level safety and robustness
+## Goal
 
-Compatibility policy:
+Rework the K&R-era netcat-like implementation into modern, maintainable C11 while preserving original CLI options and behavior by default, while improving low-level safety, robustness, and auditability
+
+This project intentionally remains a **raw transport tool**
+Security is provided *around* nc, not *inside* it
+
+---
+
+## Non-goals (by design)
+
+These are explicit and intentional constraints
+
+- No built-in encryption, authentication, certificates, or key management (TLS/SSH/etc)
+- No protocol framing beyond legacy behavior
+- No claims of “secure transport” in code, docs, or help output
+- No silent behavior changes that imply safety guarantees
+- Prefer documentation and integration guidance over reimplementing security tools
+
+Netcat remains a byte pump
+Security belongs in ssh, socat, TLS wrappers, or the surrounding system
+
+---
+
+## Compatibility policy
+
 - Legacy flags keep exact semantics (including edge cases) unless explicitly documented as deprecated
-- New useful behaviors must be added behind new options only (prefer long options to avoid collisions)
-- “Better low-level stuff” is allowed as a default when it does not change flag meanings or user-visible I/O semantics
+- Name resolution behavior remains unchanged by default (`-n` retains numeric-only semantics)
+- New behavior is introduced only behind new options (prefer long options to avoid collisions)
+- Internal hardening defaults are allowed when they do **not** change flag meaning or user-visible I/O semantics
+- Raw I/O contract remains: bytes in → bytes out
 
-## Exec hardening default: close fds in child
+---
 
-You can do that, and it fits your “same flags, better low-level behavior” goal — as long as you treat it as an internal hardening default and provide an explicit escape hatch
+## Exec hygiene default: close fds in child
 
-Policy:
-- When `-e` (or any exec mode) is used, default to: child inherits only fd 0/1/2
-- Add a new option to disable it:
-  - `--exec-inherit-fds` (recommended name)
-  - or `--no-exec-close-fds`
+Default behavior improves hygiene without changing `-e` semantics
 
-This does not change the CLI meaning of `-e`; it only changes the child process environment, which is almost always a pure improvement (prevents leaking hexdump files, listening sockets, logs, etc). If someone had been relying on leaked fds (rare), they can opt out
+- When exec modes are used, child inherits only fd 0/1/2 by default
+- Prevents accidental leakage of sockets, logs, hexdump files, etc
+- This is an internal hardening default, not a new security feature
+
+Escape hatch (new option)
+
+- `--exec-inherit-fds` disables close-fds behavior
+
+Policy
+
+- `-e` behavior remains unchanged
+- Only the child environment is hardened
+- Users relying on inherited fds can explicitly opt out
 
 Implementation shape
 
-In `ctx`:
+Context default
 
 ```c
-// defaults
-ctx->exec_close_fds = true;  // default ON
+ctx->exec_close_fds = true; // default ON
 ````
 
-CLI parsing (new option only):
+CLI parsing
 
 * `--exec-inherit-fds` → `ctx->exec_close_fds = false`
 
-Exec path:
+Exec path
 
-* `dup2(netfd, 0/1/2)` checked
-* close original `netfd` if > 2
-* if `ctx->exec_close_fds`: close everything >= 3
-* exec
+* `dup2(netfd, 0/1/2)` with return-value checks
+* Close original `netfd` if > 2
+* If `exec_close_fds` is enabled, close all fds ≥ 3
+* Execute program
 
-Use `close_range` when possible + portable fallback
+Preferred implementation
 
 ```c
 #include <unistd.h>
@@ -48,406 +80,277 @@ Use `close_range` when possible + portable fallback
 
 static void nc_close_fds_keep_stdio(void) {
 #if defined(__linux__) && defined(SYS_close_range)
-    // close everything >= 3
-    if (syscall(SYS_close_range, 3U, ~0U, 0U) == 0) return;
+    if (syscall(SYS_close_range, 3U, ~0U, 0U) == 0)
+        return;
 #endif
     long maxfd = sysconf(_SC_OPEN_MAX);
-    if (maxfd < 0) maxfd = 1024;
-    for (int fd = 3; fd < maxfd; fd++) close(fd);
+    if (maxfd < 0)
+        maxfd = 1024;
+    for (long fd = 3; fd < maxfd; fd++)
+        close((int)fd);
 }
 ```
 
-## Low-level robustness improvements that should be default
+---
 
-These are big wins that keep option semantics the same, but make the implementation sturdier
+## Low-level robustness improvements (default)
 
-* Set CLOEXEC on every non-stdio fd by default
+These preserve option semantics but improve correctness
 
-  * sockets, hexdump file, logs, temp files
-  * reduces fd leaks even without exec-close-fds
+* Mark all non-stdio fds CLOEXEC by default
+
+  * sockets
+  * hexdump files
+  * logs
+  * temp files
+
 * Avoid SIGPIPE surprises
 
-  * use `send(..., MSG_NOSIGNAL)` when available, or ignore SIGPIPE early
-* Poll loop correctness + robust EINTR handling
+  * Prefer `send(..., MSG_NOSIGNAL)` when available
+  * Avoid global SIGPIPE behavior changes that alter exit semantics
 
-  * retry `poll/read/write` on EINTR
-  * handle POLLHUP and POLLERR cleanly
-* Prefer `accept4(..., SOCK_CLOEXEC)` when available
+* Poll loop correctness
 
-  * fallback to `accept` + `fcntl(FD_CLOEXEC)`
-* Nonblocking connect done right
+  * Retry `poll/read/write` on EINTR
+  * Handle POLLHUP and POLLERR explicitly
+  * No busy loops
 
-  * use `O_NONBLOCK + poll + getsockopt(SO_ERROR)`
+* Accept hygiene
 
-Recommended new options (small, useful, no collisions):
+  * Prefer `accept4(..., SOCK_CLOEXEC)` when available
+  * Fallback to `accept` + `fcntl(FD_CLOEXEC)`
 
-* `--exec-inherit-fds` disable default close-fds hardening
-* Optional future: `--exec-keep-fd=N` repeatable, if you ever need to intentionally pass extra fds
+* Nonblocking connect done correctly
 
-Doc wording (so it’s not “behavior change” drama):
-
-* In `nc.1` and README under “Extensions”:
-
-  * By default, when using exec modes, nc closes all file descriptors except stdin/stdout/stderr before executing the program. Disable with `--exec-inherit-fds`
+  * `O_NONBLOCK + poll + getsockopt(SO_ERROR)`
 
 ---
 
-## Constraints
+## Constraints (locked in)
 
-* [x] IPv6 is optional via Meson feature and disabled by default
-* [x] Remove IP_OPTIONS / LSRR and all source-routing flags/paths
-* [x] Keep exec feature (dangerous) and keep TELNET negotiation
-* [x] Replace `select()` + FD_SETSIZE hacks and `alarm/setjmp` timeouts with nonblocking + `poll()`
-* [x] Replace `gethostbyname/gethostbyaddr/h_errno/res_init` with `getaddrinfo/getnameinfo`
+* IPv6 is optional via Meson feature and disabled by default
+* IP_OPTIONS / LSRR and all source-routing paths are removed
+* Exec feature remains available but dangerous by nature
+* TELNET negotiation remains supported
+* Replace `select()` + FD_SETSIZE hacks with nonblocking + poll
+* Replace `alarm/setjmp` timeouts with poll-based timeouts
+* Replace legacy resolver APIs with `getaddrinfo/getnameinfo`
 
 ---
 
 ## Original CLI compatibility backlog
 
-* [x] Deliberately remove source-routing flags `-g`/`-G` (safety/portability)
-* [ ] Document the deprecation clearly in:
+* Deliberately remove source-routing flags `-g` / `-G`
+* Clearly document deprecation in
 
-  * [ ] README.md (compat notes)
-  * [ ] nc.1 (options section)
-  * [ ] `-h` help output
+  * README.md
+  * nc.1
+  * `-h` output
 
-Legacy `-e` behavior must remain unchanged:
+Legacy `-e` behavior must remain unchanged
 
-* [ ] `-e prog` execs `prog` with no args (no implicit shell)
-* [ ] Exit code remains consistent with legacy expectations (127 on exec failure)
-
----
-
-## 0) Project structure split
-
-* [x] Create modules (even if you keep a single binary)
-
-  * [x] `src/main.c` CLI + wiring
-  * [x] `src/nc_ctx.h` / `src/nc_ctx.c` context struct + defaults
-  * [x] `src/resolve.c` address resolution
-  * [x] `src/connect.c` connect/listen helpers
-  * [x] `src/io_pump.c` bidirectional copy loop using poll
-  * [x] `src/telnet.c` TELNET negotiation helper
-  * [x] `src/hexdump.c` optional traffic dump
-  * [x] `src/exec.c` exec feature (gated, explicit warnings)
+* `-e prog` execs `prog` directly, no implicit shell
+* Exit code 127 on exec failure
+* No argument parsing changes
 
 ---
 
-## 1) Meson: IPv6 optional feature, default disabled
+## Project structure split
 
-* [x] Add a Meson feature option (default disabled)
+Create modules even if output remains a single binary
 
-  * [x] `meson_options.txt`
+* `src/main.c` CLI parsing and wiring
+* `src/nc_ctx.h` / `src/nc_ctx.c` context struct and defaults
+* `src/resolve.c` address resolution
+* `src/connect.c` connect/listen helpers
+* `src/io_pump.c` bidirectional poll-based pump
+* `src/telnet.c` TELNET negotiation
+* `src/hexdump.c` traffic dump support
+* `src/exec.c` exec logic (explicit, gated, warned)
+
+---
+
+## Meson: feature gating
+
+IPv6 option (default disabled)
 
 ```meson
-option('ipv6', type: 'feature', value: 'disabled', description: 'Enable IPv6 support')
+option('ipv6', type: 'feature', value: 'disabled',
+       description: 'Enable IPv6 support')
 ```
 
-* [x] In `meson.build`, detect headers and set a config define
+Exec option (default disabled)
 
 ```meson
-project('nc', 'c', default_options: ['c_std=c11', 'warning_level=3'])
-
-cc = meson.get_compiler('c')
-
-ipv6_opt = get_option('ipv6')
-have_inet6 = cc.has_header('netinet/in.h') and cc.has_header('arpa/inet.h')
-
-ipv6_enabled = false
-if ipv6_opt.enabled()
-  if have_inet6
-    ipv6_enabled = true
-  else
-    error('ipv6 enabled but required headers not found')
-  endif
-endif
-
-conf = configuration_data()
-conf.set10('NC_ENABLE_IPV6', ipv6_enabled)
-configure_file(output: 'config.h', configuration: conf)
-
-executable('nc',
-  sources: [
-    'src/main.c',
-    'src/nc_ctx.c',
-    'src/resolve.c',
-    'src/connect.c',
-    'src/io_pump.c',
-    'src/telnet.c',
-    'src/exec.c',
-    'src/hexdump.c',
-  ],
-  include_directories: include_directories('.'),
-)
+option('exec', type: 'boolean', value: false,
+       description: 'Enable dangerous exec (-e) support')
 ```
 
-* [x] In C, include config and guard IPv6 code
+Behavior when disabled
 
-```c
-#include "config.h"
-
-#if NC_ENABLE_IPV6
-  #define NC_HAVE_IPV6 1
-#else
-  #define NC_HAVE_IPV6 0
-#endif
-```
+* `-e` prints a clear error and exits nonzero
 
 ---
 
-## 2) Delete IP_OPTIONS / LSRR and related CLI flags
+## Resolver modernization
 
-* [x] Remove:
-
-  * [x] `-g`, `-G`, `gatesidx`, `gatesptr`, `gates` arrays
-  * [x] `optbuf` source-routing builder
-  * [x] any `#ifdef IP_OPTIONS` blocks
-* [x] Update help text accordingly
+* Remove `gethostbyname`, `gethostbyaddr`, `h_errno`, `res_init`
+* Implement `nc_resolve_one()` using `getaddrinfo`
+* Reverse lookup via `getnameinfo` for verbose output
+* Preserve legacy forward/reverse mismatch warnings when `-v` and not `-n`
 
 ---
 
-## 3) Replace global variables with a single context struct
+## Connect timeout rework
 
-* [ ] Create `struct nc_ctx` and pass it everywhere
-
-`src/nc_ctx.h` sketch:
-
-```c
-#pragma once
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-
-enum nc_proto { NC_TCP, NC_UDP };
-
-enum nc_exec_mode {
-    NC_EXEC_NONE = 0,
-    NC_EXEC_LEGACY_PROG,   // legacy -e prog, no args
-    NC_EXEC_SH,            // new: --sh-exec
-    NC_EXEC_ARGV,          // new: --exec-argv (execv)
-};
-
-struct nc_ctx {
-    enum nc_proto proto;
-
-    bool listen_mode;
-    bool numeric_only;
-    bool verbose;
-    bool allow_broadcast;
-    bool zero_io;
-    bool telnet;
-    bool hexdump_enabled;
-
-    int interval_secs;
-    int timeout_secs;
-    int quit_after_eof_secs;
-
-    FILE* log_out;
-    int hexdump_fd;
-
-    uint64_t wrote_out;
-    uint64_t wrote_net;
-
-    enum nc_exec_mode exec_mode;
-
-    const char* exec_prog;
-    char** exec_argv;
-
-    bool exec_close_fds;      // default ON for exec
-    bool exec_reset_signals;  // optional
-};
-```
-
-* [ ] Replace `holler/bail` with modern logging helpers
-* [ ] Ensure all logging goes to stderr by default and respects `-v` levels
+* Remove `alarm`, SIGALRM, `setjmp/longjmp`
+* Implement nonblocking connect with poll + SO_ERROR
 
 ---
 
-## 4) Replace resolver code with getaddrinfo/getnameinfo
+## Poll-based I/O pump
 
-* [x] Remove:
-
-  * [x] `gethostbyname`, `gethostbyaddr`, `h_errno`, `res_init`
-  * [x] legacy resolver tables and host compare helpers
-
-* [x] Implement:
-
-  * [x] `nc_resolve_one()` using getaddrinfo
-  * [x] reverse lookup using getnameinfo for verbose prints
-  * [x] preserve legacy forward/reverse mismatch warning when `-v` and not `-n`
+* Replace all select() paths
+* Remove FD_SETSIZE hacks
+* Clean poll loop with explicit states
+* Reintroduce interval-per-line behavior without global sleeps
+* Add `--pump=compat` only if real regressions appear
 
 ---
 
-## 5) Connect timeout: remove alarm/setjmp and use nonblocking + poll
+## TELNET support
 
-* [x] Delete `alarm`, signal(SIGALRM), setjmp/longjmp
-* [x] Implement `nc_connect_with_timeout()` using O_NONBLOCK + poll() + SO_ERROR
-
----
-
-## 6) Replace select()+FD_SETSIZE hacks with poll-based pump
-
-* [x] Delete FD_SETSIZE redefines and select() paths
-* [x] Implement a clean poll() pump loop
-* [x] Reintroduce interval-per-line behavior in a controlled way
-* [ ] Add `--pump=compat` only if a real compatibility regression is found
+* Move TELNET logic into `src/telnet.c`
+* Nonblocking, isolated logic
+* Preserve `-t` behavior
+* Add minimal regression test for negotiation replies
 
 ---
 
-## 7) Telnet negotiation kept, but isolated
+## Exec support
 
-* [ ] Move TELNET logic into `src/telnet.c`
-* [ ] Keep it pure and nonblocking
-* [ ] Ensure behavior matches legacy `-t`
-* [ ] Add a minimal regression test for telnet negotiation replies
+Legacy behavior (unchanged)
 
----
+* `-e prog` runs prog directly
+* No implicit shell
+* Exit 127 on exec failure
 
-## 8) Exec support: keep legacy, add new behaviors behind new options
+New options (extensions)
 
-Legacy behavior (must remain unchanged):
+* `--exec-argv <prog> [args...]`
 
-* [ ] `-e prog` runs `prog` directly with no args
-* [ ] No implicit shell
-* [ ] Exit 127 on exec failure
-* [ ] Warn in `-h` output that it is dangerous (compat-friendly wording)
+  * Uses `execv`
+* `--sh-exec <string>`
 
-New options:
+  * Explicit `/bin/sh -c`
+* `--exec-inherit-fds`
 
-* [ ] `--exec-argv <prog> [args...]`
+  * Disable close-fds hygiene
+* `--exec-reset-signals`
 
-  * [ ] consumes remaining argv tokens as argv vector
-  * [ ] uses `execv(prog, argv)`
-* [ ] `--sh-exec <string>`
+  * Reset signal handlers before exec
+* Optional future
 
-  * [ ] runs `/bin/sh -c <string>` explicitly
-  * [ ] no change to `-e` semantics
-* [ ] `--exec-inherit-fds`
+  * `--exec-env-clear`
 
-  * [ ] disables default close-fds hardening
-* [ ] `--exec-reset-signals`
+Exec implementation requirements
 
-  * [ ] resets signal handlers before exec
-* [ ] Optional: `--exec-env-clear`
-
-  * [ ] clears environment before exec
-
-Exec implementation hardening:
-
-* [ ] Check `dup2()` return values
-* [ ] Don’t close netfd if it is 0/1/2
-* [ ] Apply close-fds hardening by default unless `--exec-inherit-fds`
-* [ ] Prefer `execv()` for argv mode
-* [ ] Use `/bin/sh` only for sh mode
+* Check all `dup2()` return values
+* Do not close netfd if it is 0/1/2
+* Close extra fds by default
+* Prefer `execv`
+* Use `/bin/sh` only in sh mode
 
 ---
 
-## 9) Remove “read argv from stdin” hack
+## Remove stdin argv hack
 
-* [x] Delete argc==1 stdin-argv behavior
-* [ ] If needed later, add `--args-from-stdin` (opt-in)
-
----
-
-## 10) Listening mode rework (TCP/UDP)
-
-* [ ] Implement `nc_listen()` and `nc_accept()` for TCP
-* [ ] UDP listen:
-
-  * [ ] bind then lock to first peer by connect() after initial recvfrom/peek
-  * [ ] preserve legacy behavior where observable
+* Delete argc==1 “read argv from stdin” behavior
+* Optional future: `--args-from-stdin` (explicit opt-in)
 
 ---
 
-## 11) CLI/Help modernization
+## Listening mode rework
 
-* [ ] Convert all K&R function definitions to ANSI prototypes
-* [ ] Replace unsafe formatting and fixed buffers with snprintf
-* [ ] Keep legacy flags and preserve behavior:
+TCP
 
-  * [ ] `-4` force IPv4
-  * [ ] `-6` force IPv6 (error if ipv6 feature disabled)
-  * [ ] `-l` listen
-  * [ ] `-p` local port
-  * [ ] `-s` local source address
-  * [ ] `-u` UDP
-  * [ ] `-v` verbose
-  * [ ] `-n` numeric-only
-  * [ ] `-w secs` timeout
-  * [ ] `-i secs` interval
-  * [ ] `-z` zero-IO scanning
-  * [ ] `-t` telnet negotiation
-  * [ ] `-o file` hexdump file
-  * [ ] `-q secs` quit delay after stdin EOF
-  * [ ] `-e prog` legacy exec
+* Clean `nc_listen()` and `nc_accept()`
 
-Add new options block (extensions):
+UDP
 
-* [ ] `--exec-argv`
-* [ ] `--sh-exec`
-* [ ] `--exec-inherit-fds`
-* [ ] `--exec-reset-signals`
+* Bind
+* Receive initial datagram
+* Lock peer using `connect()`
+* Preserve legacy observable behavior
 
 ---
 
-## 12) Hexdump: keep but modernize
+## CLI and help cleanup
 
-* [ ] Ensure hexdump output remains compatible (prefixes, counters) if required
-* [ ] Keep formatting bounded and fast
-* [ ] Add `--hexdump-append` as a new option if append is desired
-* [ ] Ensure hexdump fd is marked CLOEXEC unless explicitly required
-
----
-
-## 13) Security and hardening toggles
-
-Default low-level safety:
-
-* [ ] Ensure all created fds use CLOEXEC by default
-* [ ] Prefer `accept4(..., SOCK_CLOEXEC)` when available
-* [ ] Avoid SIGPIPE surprises (MSG_NOSIGNAL or ignore SIGPIPE early)
-* [ ] Poll loop EINTR correctness and robust POLLHUP/POLLERR handling
-
-Optional build hardening (Meson options):
-
-* [ ] `-fstack-protector-strong`
-* [ ] `-fPIE -pie`
-* [ ] `-Wl,-z,relro,-z,now`
-* [ ] `_FORTIFY_SOURCE=2` when supported
+* Convert all K&R definitions to ANSI C
+* Replace unsafe formatting with snprintf
+* Preserve all legacy flags and behavior
+* Add “Extensions” section for new options
+* Clearly warn that exec is dangerous without implying security guarantees
 
 ---
 
-## 14) Testing checklist
+## Hexdump
 
-Core behavior:
-
-* [ ] IPv4 TCP connect: `./nc host 80`
-* [ ] IPv4 listen: `./nc -l -p 9999`
-* [ ] UDP send/recv: `./nc -u host 9999`
-* [ ] UDP listen + first peer lock: `./nc -u -l -p 9999`
-* [ ] Telnet negotiation: verify `-t` responses
-* [ ] Timeout: `-w 1` to a blackhole address returns ETIMEDOUT
-
-Exec behavior:
-
-* [ ] Legacy: `./nc -e /bin/cat host 9999`
-* [ ] New argv exec: `./nc --exec-argv /bin/echo hello host 9999`
-* [ ] New shell exec: `./nc --sh-exec 'id; uname -a' host 9999`
-* [ ] Default hardening: without extra options, exec child inherits only 0/1/2
-* [ ] Escape hatch: `--exec-inherit-fds` disables close-fds
-* [ ] `-6` behavior:
-
-  * [ ] ipv6 disabled: clear error
-  * [ ] ipv6 enabled: connect/listen works
+* Preserve legacy formatting
+* Keep fast and bounded
+* Mark hexdump fd CLOEXEC
+* Optional new option: `--hexdump-append`
 
 ---
 
-## 15) Cleanup list
+## Hardening defaults
 
-* [ ] K&R function definitions (all)
-* [x] FD_SETSIZE redefinition and select() paths
-* [x] alarm, SIGALRM handler, setjmp/longjmp timeouts
-* [ ] gethostbyname/gethostbyaddr/h_errno/res_init (after getaddrinfo migration)
-* [x] include soup (netinet/in_systm.h, netinet/ip.h)
-* [x] LSRR/IP_OPTIONS source routing (`-g`, `-G`, `gates*`)
-* [x] argc==1 “read command line from stdin” hack
+* CLOEXEC everywhere by default
+* `accept4(..., SOCK_CLOEXEC)` when available
+* SIGPIPE-safe send paths
+* Poll loop EINTR correctness
+
+Optional build hardening (Meson)
+
+* `-fstack-protector-strong`
+* `-fPIE -pie`
+* `-Wl,-z,relro,-z,now`
+* `_FORTIFY_SOURCE=2` when supported
+
+---
+
+## Testing checklist
+
+Core
+
+* IPv4 TCP connect
+* IPv4 listen
+* UDP send/recv
+* UDP listen + peer lock
+* TELNET negotiation
+* Poll-based timeout behavior
+
+Exec
+
+* Legacy `-e`
+* `--exec-argv`
+* `--sh-exec`
+* Default close-fds hygiene
+* Escape hatch `--exec-inherit-fds`
+
+IPv6
+
+* Disabled: clear error on `-6`
+* Enabled: connect/listen works
+
+---
+
+## Cleanup list
+
+* K&R function definitions
+* FD_SETSIZE hacks
+* alarm / SIGALRM paths
+* legacy resolver APIs
+* source routing flags and code
+* argc==1 stdin argv hack

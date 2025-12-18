@@ -61,6 +61,10 @@ Feature flags: `-Dipv6=enabled|disabled|auto`, `-Dtelnet=true|false`, `-Dverbose
 - `-w secs` Timeout for connects/reads: `nc -w 3 example.com 80`
 - `-z` Zero-I/O scan mode: `nc -v -z example.com 22-25`
 
+## Extensions
+
+- Exec modes close all file descriptors except stdin/stdout/stderr before launching the child; use `--exec-inherit-fds` (requires `-Dexec_hole=true`) to keep inherited descriptors when you explicitly need them.
+
 ## Notes
 
 - Hex dumps with `-o` disable when exec-after-connect is requested (`-e`/`-c`) for safety.
