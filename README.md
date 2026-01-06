@@ -1,4 +1,4 @@
-<p align="center">
+<p align="left">
   <img src="assets/ncbanner.gif" alt="nc banner">
 </p>
 
