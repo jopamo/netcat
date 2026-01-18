@@ -43,6 +43,13 @@ if liburing.found()
   add_project_arguments('-DUSE_IO_URING', language : 'c')
 endif
 
+# libbpf for eBPF filter injection
+libbpf = dependency('libbpf', required : false)
+if libbpf.found()
+  deps += libbpf
+  add_project_arguments('-DHAVE_LIBBPF', language : 'c')
+endif
+
 # Check for readpassphrase.h location
 if cc.has_header('bsd/readpassphrase.h')
   add_project_arguments('-DHAVE_BSD_READPASSPHRASE_H', language : 'c')
@@ -68,6 +75,8 @@ srcs = [
   'src/pcap.c',
   'src/proxy_proto.c',
   'src/hexdump.c',
+  'src/quic.c',
+  'src/bpf.c',
   'compat/tls_compat.c',
   'compat/openbsd_compat.c'
 ]

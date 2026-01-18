@@ -52,6 +52,7 @@ int tls_config_set_protocols(struct tls_config* _config, uint32_t _protocols);
 int tls_config_set_verify_depth(struct tls_config* _config, int _verify_depth);
 int tls_config_set_alpn(struct tls_config* _config, const char* _alpn);
 int tls_config_set_dgram(struct tls_config* _config, int _dgram);
+int tls_config_set_ktls(struct tls_config* _config, int _ktls);
 int tls_config_set_ocsp_staple_file(struct tls_config* _config, const char* _file);
 
 void tls_config_prefer_ciphers_client(struct tls_config* _config);

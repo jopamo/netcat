@@ -59,3 +59,13 @@ test('cli_dtls_test',
      python,
      args: [files('cli_dtls_test.py'), nc_bin],
      timeout: 20)
+
+test('cli_quic_probe',
+     python,
+     args: [files('cli_quic_probe.py'), nc_bin],
+     timeout: 10)
+
+test('cli_bpf_test',
+     python,
+     args: [files('cli_bpf_test.py'), nc_bin],
+     timeout: 10)

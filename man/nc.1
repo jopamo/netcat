@@ -34,22 +34,40 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl 46cDdFhklNnruUuvz
+.Op Fl -bpf-prog Ar objfile
 .Op Fl C Ar certfile
+.Op Fl -dtls
 .Op Fl e Ar name
+.Op Fl -fuzz-tcp
+.Op Fl -fuzz-udp
 .Op Fl H Ar hash
+.Op Fl -hex-dump Ar file
 .Op Fl I Ar length
 .Op Fl i Ar interval
 .Op Fl K Ar keyfile
+.Op Fl -mark Ar value
 .Op Fl M Ar ttl
+.Op Fl -mptcp
 .Op Fl m Ar minttl
+.Op Fl -namespace Ar path
 .Op Fl O Ar length
 .Op Fl o Ar staplefile
+.Op Fl -pcap Ar file
 .Op Fl P Ar proxy_username
+.Op Fl -proxy-proto
 .Op Fl p Ar source_port
+.Op Fl -quic
 .Op Fl R Ar CAfile
+.Op Fl r
+.Op Fl -send-proxy
+.Op Fl -splice
 .Op Fl s Ar sourceaddr
+.Op Fl -tfo
 .Op Fl T Ar keyword
+.Op Fl U
+.Op Fl u
 .Op Fl V Ar rtable
+.Op Fl -vsock Ar cid:port
 .Op Fl W Ar recvlimit
 .Op Fl w Ar timeout
 .Op Fl X Ar proxy_protocol
@@ -99,6 +117,9 @@ The options are as follows:
 Use IPv4 addresses only.
 .It Fl 6
 Use IPv6 addresses only.
+.It Fl -bpf-prog Ar objfile
+Attach the eBPF program from the specified object file to the socket.
+This allows kernel-level packet filtering.
 .It Fl C Ar certfile
 Load the public key part of the TLS peer certificate from
 .Ar certfile ,
@@ -109,6 +130,12 @@ Requires
 Use TLS to connect or listen.
 Cannot be used together with any of the options
 .Fl FuU .
+.It Fl -dtls
+Use DTLS (Datagram TLS) for UDP encryption.
+Requires
+.Fl c
+and
+.Fl u .
 .It Fl D
 Enable debugging on the socket.
 .It Fl d
@@ -140,6 +167,10 @@ Cannot be used with
 .Fl c
 or
 .Fl U .
+.It Fl -fuzz-tcp
+Send random data over a TCP connection to fuzz the peer.
+.It Fl -fuzz-udp
+Send random data over a UDP connection to fuzz the peer.
 .It Fl H Ar hash
 Only accept the TLS peer certificate if its hash returned from
 .Xr tls_peer_cert_hash 3
@@ -177,6 +208,12 @@ in PEM format.
 Requires
 .Fl c .
 .It Fl k
+Enable **Kernel TLS** (KTLS) offload.
+This attempts to use `ULP_KTLS` to handle encryption in the kernel, improving performance.
+Requires
+.Fl c
+or implies it.
+.It Fl -keep-open
 When a connection is completed, listen for another one.
 Requires
 .Fl l .
@@ -184,6 +221,9 @@ When used together with the
 .Fl u
 option, the server socket is not connected and it can receive UDP datagrams from
 multiple hosts.
+Formerly the
+.Fl k
+flag in older versions.
 .It Fl l
 Listen for an incoming connection rather than initiating a
 connection to a remote host.
@@ -192,11 +232,21 @@ Cannot be used together with any of the options
 Additionally, any timeouts specified with the
 .Fl w
 option are ignored.
+.It Fl -mark Ar value
+Set the socket mark (`SO_MARK`) to
+.Ar value .
+Useful for policy routing or QoS.
 .It Fl M Ar ttl
 Set the TTL / hop limit of outgoing packets.
+.It Fl -mptcp
+Enable Multipath TCP (`MPTCP`) on the socket.
 .It Fl m Ar minttl
 Ask the kernel to drop incoming packets whose TTL / hop limit is under
 .Ar minttl .
+.It Fl -namespace Ar path
+Switch to the network namespace at
+.Ar path
+before creating the socket.
 .It Fl N
 .Xr shutdown 2
 the network socket after EOF on the input.
@@ -223,12 +273,16 @@ Proxy authentication is only supported for HTTP CONNECT proxies at present.
 Save the session traffic to
 .Ar file
 in PCAP format.
+.It Fl -proxy-proto
+As a listener, expect and parse the PROXY protocol v2 header.
 .It Fl p Ar source_port
 Specify the source port
 .Nm
 should use, subject to privilege restrictions and availability.
 Cannot be used together with
 .Fl l .
+.It Fl -quic
+Send a QUIC Initial packet with a reserved version to probe for QUIC support.
 .It Fl R Ar CAfile
 Load the root CA bundle for TLS certificate verification from
 .Ar CAfile ,
@@ -240,6 +294,8 @@ Requires
 Choose source and/or destination ports randomly
 instead of sequentially within a range or in the order that the system
 assigns them.
+.It Fl -send-proxy
+As a client, send a PROXY protocol v2 header upon connection.
 .It Fl s Ar sourceaddr
 Set the source address to send packets from,
 which is useful on machines with multiple interfaces.
@@ -251,6 +307,12 @@ Cannot be used together with
 .Fl l
 or
 .Fl x .
+.It Fl -splice
+Use
+.Xr splice 2
+for zero-copy data transfer between the socket and standard I/O.
+.It Fl -tfo
+Enable TCP Fast Open (`TCP_FASTOPEN`) to reduce latency.
 .It Fl T Ar keyword
 Change the IPv4 TOS/IPv6 traffic class value or the TLS options.
 .Pp
@@ -322,6 +384,9 @@ unless the
 flag is given.
 .It Fl V Ar rtable
 Set the routing table to be used.
+.It Fl -vsock Ar cid:port
+Use AF_VSOCK (Virtual Sockets) to connect to or listen on the specified
+CID and Port.
 .It Fl v
 Produce more verbose output.
 .It Fl W Ar recvlimit

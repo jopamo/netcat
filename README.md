@@ -429,6 +429,32 @@ Always ski in control.
 
 ---
 
+## Migration Guide: Moving to Netcat 2.0
+
+If you are coming from legacy `netcat`, `socat`, or `ncat`, here is how to map your workflows to Netcat 2.0.
+
+**From Socat:**
+*   `socat TCP:host:port -` -> `nc host port`
+*   `socat OPENSSL:host:port,verify=0 -` -> `nc -c -T noverify host port`
+*   `socat UDP:host:port -` -> `nc -u host port`
+*   `socat SCTP:host:port -` -> Sorry, we don't do SCTP. Use MPTCP (`--mptcp`) instead.
+
+**From Ncat (Nmap):**
+*   `ncat --ssl host port` -> `nc -c host port`
+*   `ncat --broker` -> Use a real message broker (Redis/NATS), or `nc -k -l` for simple cases.
+*   `ncat --exec "/bin/bash"` -> `nc -e /bin/bash` (if `security_hole` enabled)
+
+**From Legacy Netcat (OpenBSD/GNU):**
+*   Scripts using `-q <seconds>` (quit after EOF) -> Use `-N` (shutdown on EOF) or `-w <seconds>`.
+*   Scripts using `-g` (Source Routing) -> Remove `-g`. It is gone.
+
+**Key Changes:**
+*   **TLS is Native:** No need for `stunnel`. Use `-c` (client) or `-c -l` (server).
+*   **Speed:** Use `--splice` for file transfers and `-U` (io_uring) for high-load connections.
+*   **New Protocols:** `-u` now supports `--quic` and `--dtls`.
+
+---
+
 ## Notes
 
 A discussion of various caveats, subtleties, and the design of the innards.

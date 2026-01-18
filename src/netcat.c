@@ -35,37 +35,41 @@
 #include "netcat.h"
 #include "pcap.h"
 #include "proxy_proto.h"
+#include "quic.h"
+#include "bpf.h"
 #include <getopt.h>
 #include <sched.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 
 /* Command Line Options */
-int dflag;          /* detached, no stdin */
-int Fflag;          /* fdpass sock to stdout */
-unsigned int iflag; /* Interval Flag */
-int kflag;          /* More than one connect */
-int lflag;          /* Bind to local port */
-int jflag;          /* JSON output */
-char* pcapfile;     /* PCAP file path */
-int proxy_proto;    /* PROXY protocol server */
-int send_proxy;     /* PROXY protocol client */
-FILE* hex_fp;       /* Hex dump file pointer */
-char* hex_path;     /* Hex dump file path */
-int Nflag;          /* shutdown() network socket */
-int nflag;          /* Don't do name look up */
-char* Pflag;        /* Proxy username */
-char* pflag;        /* Localport flag */
-int rflag;          /* Random ports flag */
-char* sflag;        /* Source Address */
-int uflag;          /* UDP - Default to TCP */
-int vflag;          /* Verbosity */
-int xflag;          /* Socks proxy */
-int zflag;          /* Port Scan Flag */
-int Dflag;          /* sodebug */
-int Iflag;          /* TCP receive buffer size */
-int Oflag;          /* TCP send buffer size */
-int Tflag = -1;     /* IP Type of Service */
+int dflag;           /* detached, no stdin */
+int Fflag;           /* fdpass sock to stdout */
+unsigned int iflag;  /* Interval Flag */
+int keepopen;        /* More than one connect (formerly -k) */
+int lflag;           /* Bind to local port */
+int jflag;           /* JSON output */
+char* pcapfile;      /* PCAP file path */
+int proxy_proto;     /* PROXY protocol server */
+int send_proxy;      /* PROXY protocol client */
+int quic_probe;      /* QUIC probing */
+FILE* hex_fp;        /* Hex dump file pointer */
+char* hex_path;      /* Hex dump file path */
+char* bpf_prog_path; /* BPF program path */
+int Nflag;           /* shutdown() network socket */
+int nflag;           /* Don't do name look up */
+char* Pflag;         /* Proxy username */
+char* pflag;         /* Localport flag */
+int rflag;           /* Random ports flag */
+char* sflag;         /* Source Address */
+int uflag;           /* UDP - Default to TCP */
+int vflag;           /* Verbosity */
+int xflag;           /* Socks proxy */
+int zflag;           /* Port Scan Flag */
+int Dflag;           /* sodebug */
+int Iflag;           /* TCP receive buffer size */
+int Oflag;           /* TCP send buffer size */
+int Tflag = -1;      /* IP Type of Service */
 int rtableid = -1;
 
 int fuzz_tcp; /* Fuzz TCP with random data */
@@ -86,6 +90,7 @@ int sockpriority = -1; /* SO_PRIORITY */
 
 int usetls;           /* use TLS */
 int dtls;             /* use DTLS */
+int ktls;             /* use Kernel TLS */
 const char* Cflag;    /* Public cert file */
 const char* Kflag;    /* Private key file */
 const char* oflag;    /* OCSP stapling file */
@@ -140,6 +145,8 @@ int main(int argc, char* argv[]) {
                                            {"splice", no_argument, NULL, 1013},
                                            {"io-uring", no_argument, NULL, 1014},
                                            {"hex-dump", required_argument, NULL, 1015},
+                                           {"bpf-prog", required_argument, NULL, 1016},
+                                           {"keep-open", no_argument, NULL, 1017},
                                            {NULL, 0, NULL, 0}};
 
     ret = 1;
@@ -165,7 +172,8 @@ int main(int argc, char* argv[]) {
                     errx(1, "mark is %s", errstr);
                 break;
             case 1004:
-                /* quic placeholder */
+                quic_probe = 1;
+                uflag = 1;
                 break;
             case 1005:
                 dtls = 1;
@@ -205,6 +213,12 @@ int main(int argc, char* argv[]) {
                 break;
             case 1015:
                 hex_path = optarg;
+                break;
+            case 1016:
+                bpf_prog_path = optarg;
+                break;
+            case 1017:
+                keepopen = 1;
                 break;
             case '4':
                 family = AF_INET;
@@ -256,7 +270,8 @@ int main(int argc, char* argv[]) {
                 Kflag = optarg;
                 break;
             case 'k':
-                kflag = 1;
+                ktls = 1;
+                usetls = 1;
                 break;
             case 'l':
                 lflag = 1;
@@ -417,7 +432,7 @@ int main(int argc, char* argv[]) {
         if (oflag && unveil(oflag, "r") == -1)
             err(1, "unveil %s", oflag);
     }
-    else if (family == AF_UNIX && uflag && lflag && !kflag) {
+    else if (family == AF_UNIX && uflag && lflag && !keepopen) {
         /*
          * After recvfrom(2) from client, the server connects
          * to the client socket.  As the client path is determined
@@ -435,7 +450,7 @@ int main(int argc, char* argv[]) {
                 if (unveil(host, "rwc") == -1)
                     err(1, "unveil %s", host);
             }
-            if (uflag && !kflag) {
+            if (uflag && !keepopen) {
                 if (sflag) {
                     if (sflag[0] != '@') {
                         if (unveil(sflag, "rwc") == -1)
@@ -488,8 +503,8 @@ int main(int argc, char* argv[]) {
         errx(1, "cannot use -p and -l");
     if (lflag && zflag)
         errx(1, "cannot use -z and -l");
-    if (!lflag && kflag)
-        errx(1, "must use -l with -k");
+    if (!lflag && keepopen)
+        errx(1, "must use -l with --keep-open");
     if (uflag && usetls && !dtls)
         errx(1, "cannot use -c and -u");
     if (spliceflag && (usetls || uflag || zflag || Fflag))
@@ -588,6 +603,8 @@ int main(int argc, char* argv[]) {
             errx(1, "unable to allocate TLS config");
         if (dtls && tls_config_set_dgram(tls_cfg, 1) == -1)
             errx(1, "%s", tls_config_error(tls_cfg));
+        if (ktls && tls_config_set_ktls(tls_cfg, 1) == -1)
+            errx(1, "%s", tls_config_error(tls_cfg));
         if (Rflag && tls_config_set_ca_file(tls_cfg, Rflag) == -1)
             errx(1, "%s", tls_config_error(tls_cfg));
         if (Cflag && tls_config_set_cert_file(tls_cfg, Cflag) == -1)
@@ -653,24 +670,28 @@ int main(int argc, char* argv[]) {
                 if (s != -1)
                     close(s);
                 s = local_listen(host, uport, hints);
+                if (s != -1 && bpf_prog_path) {
+                    if (attach_bpf_prog(s, bpf_prog_path) == -1)
+                        errx(1, "bpf attach failed");
+                }
             }
             if (s == -1)
                 err(1, NULL);
-            if (uflag && kflag) {
+            if (uflag && keepopen) {
                 if (family == AF_UNIX) {
                     if (pledge("stdio unix", NULL) == -1)
                         err(1, "pledge");
                 }
                 /*
-                 * For UDP and -k, don't connect the socket,
+                 * For UDP and --keep-open, don't connect the socket,
                  * let it receive datagrams from multiple
                  * socket pairs.
                  */
                 readwrite(s, NULL);
             }
-            else if (uflag && !kflag) {
+            else if (uflag && !keepopen) {
                 /*
-                 * For UDP and not -k, we will use recvfrom()
+                 * For UDP and not --keep-open, we will use recvfrom()
                  * initially to wait for a caller, then use
                  * the regular functions to talk to the caller.
                  */
@@ -721,7 +742,7 @@ int main(int argc, char* argv[]) {
                 tls_free(tls_cctx);
             }
 
-            if (!kflag)
+            if (!keepopen)
                 break;
         }
     }
@@ -783,23 +804,45 @@ int main(int argc, char* argv[]) {
             if (s == -1)
                 continue;
 
+            if (bpf_prog_path) {
+                if (attach_bpf_prog(s, bpf_prog_path) == -1)
+                    errx(1, "bpf attach failed");
+            }
+
             if (send_proxy)
                 send_proxy_v2(s);
 
             ret = 0;
-            if (vflag || zflag) {
+            if (vflag || zflag || quic_probe) {
                 int print_info = 1;
 
                 /* For UDP, make sure we are connected. */
                 if (uflag) {
+                    if (quic_probe) {
+                        if (quic_test(s, host, portlist[i]) == 1) {
+                            if (!zflag)
+                                fprintf(stderr, "QUIC Connection to %s %s succeeded!\n", host, portlist[i]);
+                            print_info = 0; /* Already printed */
+                        }
+                        else {
+                            ret = 1;
+                            print_info = 0;
+                            if (vflag)
+                                warnx("QUIC probe to %s %s failed", host, portlist[i]);
+                        }
+                    }
                     /* No info on failed or skipped test. */
-                    if ((print_info = udptest(s)) == -1) {
+                    else if ((print_info = udptest(s)) == -1) {
                         ret = 1;
                         continue;
                     }
                 }
                 if (print_info == 1)
                     connection_info(host, portlist[i], uflag ? "udp" : "tcp", ipaddr);
+            }
+            if (quic_probe) {
+                close(s);
+                continue;
             }
             if (Fflag)
                 fdpass(s);

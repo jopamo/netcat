@@ -26,6 +26,7 @@ struct tls_config {
     int verify_client_optional;
     int ocsp_require_stapling;
     int dgram;
+    int ktls;
     char* error;
 };
 
@@ -119,6 +120,11 @@ int tls_config_set_alpn(struct tls_config* c, const char* alpn) {
 
 int tls_config_set_dgram(struct tls_config* c, int dgram) {
     c->dgram = dgram;
+    return 0;
+}
+
+int tls_config_set_ktls(struct tls_config* c, int ktls) {
+    c->ktls = ktls;
     return 0;
 }
 
@@ -244,6 +250,12 @@ int tls_configure(struct tls* ctx, struct tls_config* config) {
     if (!(config->protocols & TLS_PROTOCOL_TLSv1_3))
         options |= SSL_OP_NO_TLSv1_3;
 #endif
+
+#ifdef SSL_OP_ENABLE_KTLS
+    if (config->ktls)
+        options |= SSL_OP_ENABLE_KTLS;
+#endif
+
     SSL_CTX_set_options(ctx->ctx, options);
 
     if (config->ciphers) {
