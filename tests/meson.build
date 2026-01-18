@@ -39,3 +39,18 @@ test('cli_fuzzer',
      python,
      args: [files('cli_fuzzer.py'), nc_bin],
      timeout: 10)
+
+test('cli_pcap_test',
+     python,
+     args: [files('cli_pcap_test.py'), nc_bin],
+     timeout: 10)
+
+test('cli_proxy_proto_test',
+     python,
+     args: [files('cli_proxy_proto_test.py'), nc_bin],
+     timeout: 10)
+
+test('cli_hexdump_test',
+     python,
+     args: [files('cli_hexdump_test.py'), nc_bin],
+     timeout: 10)

@@ -52,6 +52,11 @@ extern unsigned int iflag; /* Interval Flag */
 extern int kflag;          /* More than one connect */
 extern int lflag;          /* Bind to local port */
 extern int jflag;          /* JSON output */
+extern char* pcapfile;     /* PCAP file path */
+extern int proxy_proto;    /* PROXY protocol server */
+extern int send_proxy;     /* PROXY protocol client */
+extern FILE* hex_fp;       /* Hex dump file pointer */
+extern char* hex_path;     /* Hex dump file path */
 extern int Nflag;          /* shutdown() network socket */
 extern int fuzz_tcp;       /* Fuzz TCP with random data */
 extern int fuzz_udp;       /* Fuzz UDP with random data */
@@ -131,7 +136,8 @@ void save_peer_cert(struct tls* _tls_ctx, FILE* _fp);
 void report_sock(const char*, const struct sockaddr*, socklen_t, char*);
 void report_tls(struct tls* tls_ctx, char* host);
 void usage(int);
-ssize_t drainbuf(int, unsigned char*, size_t*, struct tls*);
-ssize_t fillbuf(int, unsigned char*, size_t*, struct tls*);
+void hexdump(FILE* fp, const char* prefix, const unsigned char* buf, size_t len, size_t total);
+ssize_t drainbuf(int, unsigned char*, size_t*, struct tls*, int);
+ssize_t fillbuf(int, unsigned char*, size_t*, struct tls*, int);
 void tls_setup_client(struct tls*, int, char*);
 struct tls* tls_setup_server(struct tls*, int, char*);

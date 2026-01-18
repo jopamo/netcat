@@ -1,5 +1,8 @@
 #include "netcat.h"
+#include "pcap.h"
 #include <fcntl.h>
+
+static size_t hex_total_in, hex_total_out;
 
 void splice_loop(int net_fd) {
     int p_in[2], p_out[2];
@@ -86,6 +89,17 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
     if (spliceflag && !tls_ctx) {
         splice_loop(net_fd);
         return;
+    }
+
+    if (pcapfile)
+        pcap_open(net_fd, pcapfile);
+
+    if (hex_path) {
+        if (strcmp(hex_path, "-") == 0)
+            hex_fp = stderr;
+        else if ((hex_fp = fopen(hex_path, "w")) == NULL)
+            err(1, "hex-dump");
+        hex_total_in = hex_total_out = 0;
     }
 
     /* don't read from stdin if requested or fuzzing */
@@ -176,7 +190,7 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
 
         /* try to read from stdin */
         if (pfd[POLL_STDIN].revents & POLLIN && stdinbufpos < BUFSIZE) {
-            ret = fillbuf(pfd[POLL_STDIN].fd, stdinbuf, &stdinbufpos, NULL);
+            ret = fillbuf(pfd[POLL_STDIN].fd, stdinbuf, &stdinbufpos, NULL, net_fd);
             if (ret == TLS_WANT_POLLIN)
                 pfd[POLL_STDIN].events = POLLIN;
             else if (ret == TLS_WANT_POLLOUT)
@@ -192,7 +206,7 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
         }
         /* try to write to network */
         if (pfd[POLL_NETOUT].revents & POLLOUT && stdinbufpos > 0) {
-            ret = drainbuf(pfd[POLL_NETOUT].fd, stdinbuf, &stdinbufpos, tls_ctx);
+            ret = drainbuf(pfd[POLL_NETOUT].fd, stdinbuf, &stdinbufpos, tls_ctx, net_fd);
             if (ret == TLS_WANT_POLLIN)
                 pfd[POLL_NETOUT].events = POLLIN;
             else if (ret == TLS_WANT_POLLOUT)
@@ -208,7 +222,7 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
         }
         /* try to read from network */
         if (pfd[POLL_NETIN].revents & POLLIN && netinbufpos < BUFSIZE) {
-            ret = fillbuf(pfd[POLL_NETIN].fd, netinbuf, &netinbufpos, tls_ctx);
+            ret = fillbuf(pfd[POLL_NETIN].fd, netinbuf, &netinbufpos, tls_ctx, net_fd);
             if (ret == TLS_WANT_POLLIN)
                 pfd[POLL_NETIN].events = POLLIN;
             else if (ret == TLS_WANT_POLLOUT)
@@ -235,7 +249,7 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
         }
         /* try to write to stdout */
         if (pfd[POLL_STDOUT].revents & POLLOUT && netinbufpos > 0) {
-            ret = drainbuf(pfd[POLL_STDOUT].fd, netinbuf, &netinbufpos, NULL);
+            ret = drainbuf(pfd[POLL_STDOUT].fd, netinbuf, &netinbufpos, NULL, net_fd);
             if (ret == TLS_WANT_POLLIN)
                 pfd[POLL_STDOUT].events = POLLIN;
             else if (ret == TLS_WANT_POLLOUT)
@@ -261,9 +275,11 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
             pfd[POLL_STDOUT].fd = -1;
         }
     }
+    if (pcapfile)
+        pcap_close();
 }
 
-ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls) {
+ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls, int net_fd) {
     ssize_t n;
     ssize_t adjust;
 
@@ -283,6 +299,15 @@ ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls) {
     }
     if (n <= 0)
         return n;
+
+    if (pcapfile)
+        pcap_log(fd, buf, n, 1);
+
+    if (hex_fp && fd == net_fd) {
+        hexdump(hex_fp, ">", buf, n, hex_total_out);
+        hex_total_out += n;
+    }
+
     /* adjust buffer */
     adjust = *bufpos - n;
     if (adjust > 0)
@@ -291,7 +316,7 @@ ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls) {
     return n;
 }
 
-ssize_t fillbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls) {
+ssize_t fillbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls, int net_fd) {
     size_t num = BUFSIZE - *bufpos;
     ssize_t n;
 
@@ -311,6 +336,15 @@ ssize_t fillbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls) {
     }
     if (n <= 0)
         return n;
+
+    if (pcapfile)
+        pcap_log(fd, buf + *bufpos, n, 0);
+
+    if (hex_fp && fd == net_fd) {
+        hexdump(hex_fp, "<", buf + *bufpos, n, hex_total_in);
+        hex_total_in += n;
+    }
+
     *bufpos += n;
     return n;
 }

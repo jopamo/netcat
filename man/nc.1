@@ -153,6 +153,16 @@ and cannot be used with
 Print out the
 .Nm
 help text and exit.
+.It Fl -hex-dump Ar file
+Save a hex dump of the network traffic to
+.Ar file .
+The dump lines begin with
+.Sq <
+or
+.Sq >
+to respectively indicate "from the net" or "to the net",
+and contain the total count per direction, and hex and ascii
+representations of the traffic.
 .It Fl I Ar length
 Specify the size of the TCP receive buffer.
 .It Fl i Ar interval
@@ -209,6 +219,10 @@ and
 Specifies a username to present to a proxy server that requires authentication.
 If no username is specified then authentication will not be attempted.
 Proxy authentication is only supported for HTTP CONNECT proxies at present.
+.It Fl -pcap Ar file
+Save the session traffic to
+.Ar file
+in PCAP format.
 .It Fl p Ar source_port
 Specify the source port
 .Nm
@@ -328,6 +342,10 @@ will listen forever for a connection, with or without the
 .Fl w
 flag.
 The default is no timeout.
+.It Fl -proxy-proto
+As a listener, expect and parse the PROXY protocol v2 header.
+.It Fl -send-proxy
+As a client, send a PROXY protocol v2 header upon connection.
 .It Fl X Ar proxy_protocol
 Use
 .Ar proxy_protocol

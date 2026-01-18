@@ -82,7 +82,12 @@ void help(void) {
         "domain socket\n\t-u\t\tUDP mode\n\t-V rtable\tSpecify alternate routing table\n\t-v\t\tVerbose\n\t-W "
         "recvlimit\tTerminate after receiving a number of packets\n\t-w timeout\tTimeout for connects and final net "
         "reads\n\t-X proto\tProxy protocol: \"5\" (SOCKS) or \"connect\"\n\t-x addr[:port]\tSpecify "
-        "proxy address and port\n\t-Z\t\tPeer certificate file\n\t-z\t\tZero-I/O mode [used for scanning]\n\tPort "
+        "proxy address and port\n\t-Z\t\tPeer certificate file\n\t-z\t\tZero-I/O mode [used for scanning]\n"
+        "\t--hex-dump file\tSave hex dump of traffic\n"
+        "\t--pcap file\tSave session to PCAP file\n"
+        "\t--proxy-proto\tExpect PROXY protocol v2 header\n"
+        "\t--send-proxy\tSend PROXY protocol v2 header\n"
+        "\tPort "
         "numbers can be individual or ranges: lo-hi [inclusive]\n");
     exit(1);
 }

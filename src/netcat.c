@@ -33,6 +33,8 @@
  */
 
 #include "netcat.h"
+#include "pcap.h"
+#include "proxy_proto.h"
 #include <getopt.h>
 #include <sched.h>
 #include <fcntl.h>
@@ -45,6 +47,11 @@ unsigned int iflag; /* Interval Flag */
 int kflag;          /* More than one connect */
 int lflag;          /* Bind to local port */
 int jflag;          /* JSON output */
+char* pcapfile;     /* PCAP file path */
+int proxy_proto;    /* PROXY protocol server */
+int send_proxy;     /* PROXY protocol client */
+FILE* hex_fp;       /* Hex dump file pointer */
+char* hex_path;     /* Hex dump file path */
 int Nflag;          /* shutdown() network socket */
 int nflag;          /* Don't do name look up */
 char* Pflag;        /* Proxy username */
@@ -131,6 +138,7 @@ int main(int argc, char* argv[]) {
                                            {"fuzz-udp", no_argument, NULL, 1012},
                                            {"splice", no_argument, NULL, 1013},
                                            {"io-uring", no_argument, NULL, 1014},
+                                           {"hex-dump", required_argument, NULL, 1015},
                                            {NULL, 0, NULL, 0}};
 
     ret = 1;
@@ -155,6 +163,12 @@ int main(int argc, char* argv[]) {
                 if (errstr)
                     errx(1, "mark is %s", errstr);
                 break;
+            case 1006:
+                proxy_proto = 1;
+                break;
+            case 1007:
+                send_proxy = 1;
+                break;
             case 1008:
                 if ((vsock_cid = strdup(optarg)) == NULL)
                     err(1, NULL);
@@ -165,6 +179,9 @@ int main(int argc, char* argv[]) {
             case 1009:
                 netns = optarg;
                 break;
+            case 1010:
+                pcapfile = optarg;
+                break;
             case 1011:
                 fuzz_tcp = 1;
                 break;
@@ -173,6 +190,12 @@ int main(int argc, char* argv[]) {
                 break;
             case 1013:
                 spliceflag = 1;
+                break;
+            case 1014:
+                /* io_uring placeholder */
+                break;
+            case 1015:
+                hex_path = optarg;
                 break;
             case '4':
                 family = AF_INET;
@@ -670,6 +693,8 @@ int main(int argc, char* argv[]) {
                     /* For now, all errnos are fatal */
                     err(1, "accept");
                 }
+                if (proxy_proto)
+                    recv_proxy_v2(connfd);
                 if (vflag)
                     report_sock("Connection received", (struct sockaddr*)&cliaddr, len,
                                 family == AF_UNIX ? host : NULL);
@@ -744,6 +769,9 @@ int main(int argc, char* argv[]) {
 
             if (s == -1)
                 continue;
+
+            if (send_proxy)
+                send_proxy_v2(s);
 
             ret = 0;
             if (vflag || zflag) {

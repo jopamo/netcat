@@ -36,6 +36,13 @@ if libm.found()
   deps += libm
 endif
 
+# liburing for asynchronous I/O
+liburing = dependency('liburing', required : false)
+if liburing.found()
+  deps += liburing
+  add_project_arguments('-DUSE_IO_URING', language : 'c')
+endif
+
 # Check for readpassphrase.h location
 if cc.has_header('bsd/readpassphrase.h')
   add_project_arguments('-DHAVE_BSD_READPASSPHRASE_H', language : 'c')
@@ -58,6 +65,9 @@ srcs = [
   'src/tls.c',
   'src/utils.c',
   'src/log.c',
+  'src/pcap.c',
+  'src/proxy_proto.c',
+  'src/hexdump.c',
   'compat/tls_compat.c',
   'compat/openbsd_compat.c'
 ]
