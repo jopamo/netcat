@@ -85,6 +85,7 @@ int sockmark = -1; /* SO_MARK */
 int sockpriority = -1; /* SO_PRIORITY */
 
 int usetls;           /* use TLS */
+int dtls;             /* use DTLS */
 const char* Cflag;    /* Public cert file */
 const char* Kflag;    /* Private key file */
 const char* oflag;    /* OCSP stapling file */
@@ -162,6 +163,14 @@ int main(int argc, char* argv[]) {
                 sockmark = strtonum(optarg, 0, INT_MAX, &errstr);
                 if (errstr)
                     errx(1, "mark is %s", errstr);
+                break;
+            case 1004:
+                /* quic placeholder */
+                break;
+            case 1005:
+                dtls = 1;
+                usetls = 1;
+                uflag = 1;
                 break;
             case 1006:
                 proxy_proto = 1;
@@ -481,7 +490,7 @@ int main(int argc, char* argv[]) {
         errx(1, "cannot use -z and -l");
     if (!lflag && kflag)
         errx(1, "must use -l with -k");
-    if (uflag && usetls)
+    if (uflag && usetls && !dtls)
         errx(1, "cannot use -c and -u");
     if (spliceflag && (usetls || uflag || zflag || Fflag))
         errx(1, "cannot use --splice with TLS, UDP, port scanning or FD passing");
@@ -577,6 +586,8 @@ int main(int argc, char* argv[]) {
     if (usetls) {
         if ((tls_cfg = tls_config_new()) == NULL)
             errx(1, "unable to allocate TLS config");
+        if (dtls && tls_config_set_dgram(tls_cfg, 1) == -1)
+            errx(1, "%s", tls_config_error(tls_cfg));
         if (Rflag && tls_config_set_ca_file(tls_cfg, Rflag) == -1)
             errx(1, "%s", tls_config_error(tls_cfg));
         if (Cflag && tls_config_set_cert_file(tls_cfg, Cflag) == -1)
@@ -585,11 +596,13 @@ int main(int argc, char* argv[]) {
             errx(1, "%s", tls_config_error(tls_cfg));
         if (oflag && tls_config_set_ocsp_staple_file(tls_cfg, oflag) == -1)
             errx(1, "%s", tls_config_error(tls_cfg));
-        if (tls_config_parse_protocols(&protocols, tls_protocols) == -1)
-            errx(1, "invalid TLS protocols `%s'", tls_protocols);
-        if (tls_config_set_protocols(tls_cfg, protocols) == -1)
-            errx(1, "%s", tls_config_error(tls_cfg));
-        if (tls_config_set_ciphers(tls_cfg, tls_ciphers) == -1)
+        if (tls_protocols) {
+            if (tls_config_parse_protocols(&protocols, tls_protocols) == -1)
+                errx(1, "invalid TLS protocols `%s'", tls_protocols);
+            if (tls_config_set_protocols(tls_cfg, protocols) == -1)
+                errx(1, "%s", tls_config_error(tls_cfg));
+        }
+        if (tls_ciphers && tls_config_set_ciphers(tls_cfg, tls_ciphers) == -1)
             errx(1, "%s", tls_config_error(tls_cfg));
         if (tls_alpn != NULL && tls_config_set_alpn(tls_cfg, tls_alpn) == -1)
             errx(1, "%s", tls_config_error(tls_cfg));

@@ -25,6 +25,7 @@ struct tls_config {
     int verify_client;
     int verify_client_optional;
     int ocsp_require_stapling;
+    int dgram;
     char* error;
 };
 
@@ -116,6 +117,11 @@ int tls_config_set_alpn(struct tls_config* c, const char* alpn) {
     return 0;
 }
 
+int tls_config_set_dgram(struct tls_config* c, int dgram) {
+    c->dgram = dgram;
+    return 0;
+}
+
 int tls_config_set_ocsp_staple_file(struct tls_config* c, const char* file) {
     /* Not implemented yet */
     (void)c;
@@ -190,7 +196,15 @@ const char* tls_error(struct tls* ctx) {
 }
 
 int tls_configure(struct tls* ctx, struct tls_config* config) {
-    const SSL_METHOD* method = ctx->server_mode ? TLS_server_method() : TLS_client_method();
+    const SSL_METHOD* method;
+
+    if (config->dgram) {
+        method = ctx->server_mode ? DTLS_server_method() : DTLS_client_method();
+    }
+    else {
+        method = ctx->server_mode ? TLS_server_method() : TLS_client_method();
+    }
+
     ctx->ctx = SSL_CTX_new(method);
     if (!ctx->ctx) {
         set_error(ctx, "SSL_CTX_new failed");

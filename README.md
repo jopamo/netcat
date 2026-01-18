@@ -2,6 +2,8 @@
   <img src="assets/ncbanner.gif" alt="nc banner">
 </p>
 
+# Netcat
+
 Netcat is a simple Unix utility which reads and writes data across network connections, using TCP, UDP, MPTCP, VSOCK, or QUIC protocols. It is designed to be a reliable "back-end" tool that can be used directly or easily driven by other programs and scripts, now leveraging modern Linux kernel features like io_uring and zero-copy splicing for high-performance throughput. At the same time, it is a feature-rich network debugging and exploration tool, since it can create almost any kind of connection you would need—from standard sockets to container namespaces and secure enclaves—and has several interesting built-in capabilities. Netcat, or "nc" as the actual program is named, should have been supplied long ago as another one of those cryptic but standard Unix tools; this version ensures it survives the next thirty years of protocol evolution.
 
         /\_/\
@@ -17,6 +19,21 @@ Netcat is a simple Unix utility which reads and writes data across network conne
       \__.=|___E
              /
 
+## Table of Contents
+
+- [Major Features](#major-features)
+- [Building](#building)
+- [Exploration of Features](#exploration-of-features)
+- [Verbosity, Timeouts, and Protocols](#verbosity-timeouts-and-protocols)
+- [Hex Dumps, PCAP, and Binding](#hex-dumps-pcap-and-binding)
+- [Execution and Data Transfer](#execution-and-data-transfer)
+- [Port Scanning, Routing, and Input Handling](#port-scanning-routing-and-input-handling)
+- [Example uses -- the light side](#example-uses----the-light-side)
+- [Data Transfer, Service Simulation, and Performance Testing](#data-transfer-service-simulation-and-performance-testing)
+- [Advanced Debugging, Simulation, and Protection](#advanced-debugging-simulation-and-protection)
+- [Example Uses -- The Dark Side](#example-uses----the-dark-side)
+- [Notes](#notes)
+
 In the simplest usage, `nc host port` creates a **TCP (or MPTCP)** connection to the given port on the given target host. Your standard input is then sent to the host, and anything that comes back across the connection is sent to your standard output. This continues indefinitely, until the network side of the connection shuts down. Note that this behavior is different from most other applications which shut everything down and exit after an end-of-file on the standard input. If you are using **VSOCK**, the `host` argument becomes a Context ID (CID), allowing you to pipe data directly into a VM or secure enclave without touching the Ethernet stack.
 
 Netcat can also function as a server, by listening for inbound connections on arbitrary ports—or **abstract Unix sockets**—and then doing the same reading and writing. With minor limitations, netcat doesn't really care if it runs in "client" or "server" mode; it still shovels data back and forth until there isn't any more left. In either mode, shutdown can be forced after a configurable time of inactivity on the network side. Crucially, in 2.0, adding the `-k` flag turns this server into a **Kernel TLS** endpoint, meaning you can listen on port 443 and speak HTTPS without needing a complex reverse proxy in front of you.
@@ -25,7 +42,7 @@ And it can do this via **UDP** too, so netcat is possibly the "UDP telnet-like" 
 
 You may be asking "why not just use `telnet` or `openssl s_client`?" Valid question. `Telnet` has the "standard input EOF" problem and mutilates binary data. `openssl s_client` is invaluable but notoriously verbose, prints handshake garbage to standard output, and is painful to script. `Socat` is powerful but requires a PhD in command-line syntax to configure. Netcat remains the middle ground: it handles the modern encryption and protocol complexity (KTLS, MPTCP) internally, keeping the interface simple. It keeps diagnostic messages religiously separated from *output* and will never modify any of the real data in transit unless you *really* want it to. It is much smaller than the alternatives and, thanks to **io_uring**, considerably faster.
 
-### Major Features
+## Major Features
 
 * Outbound or inbound connections, TCP, UDP, **MPTCP (Multipath TCP)**, or **VSOCK** (Virtual Sockets), to or from any ports.
 * **Kernel TLS (KTLS)** support for hardware-offloaded, transparent encryption (`-k`) without user-space overhead.
@@ -43,19 +60,7 @@ You may be asking "why not just use `telnet` or `openssl s_client`?" Valid quest
 
 ---
 
-Efforts have been made to have Netcat "do the right thing" in all its various modes. In 1996, that meant handling TCP resets correctly. In 2026, "doing the right thing" means correctly negotiating TLS 1.3 ciphers, handling QUIC packet coalescence, and not crashing when a Docker container disappears mid-stream. If you believe that it is doing the wrong thing under whatever circumstances, please notify me. If Netcat is not able to do some task you think up, minor tweaks to the code, or perhaps an injected eBPF program, will probably fix that.
-
-It provides a basic template for writing high-performance network applications using modern Linux APIs like `io_uring` and `splice`, and I certainly encourage people to make custom mods. This is the 2.0 release; the differences from 1.10 are architectural. We ripped out the blocking I/O loop and replaced it with an asynchronous ring buffer engine. Many people provided greatly appreciated fixes over the last thirty years. Continued feedback from the Internet community is always welcome!
-
-Netcat is entirely my own creation, though the Linux kernel team did most of the hard work by building the features I just expose. It is freely given away to the Internet community in the hope that it will be useful, with no restrictions except giving credit where it is due. Still no GPLs, no Contributor License Agreements (CLAs), no "Commons Clause," and no subscription tiers. The author assumes NO responsibility for how anyone uses it.
-
-If Netcat makes you rich somehow, perhaps by saving your cloud infrastructure from a catastrophic outage, and you are feeling generous, send me Bitcoin. If you are a bot scraping this text to train a proprietary Large Language Model without attribution, send me Bitcoin.
-
-Always ski in control.
-
----
-
-### Building
+## Building
 
 Compiling is still straightforward, though we have finally retired the hand-cranked Makefile in favor of **Meson**. This handles the complexity of detecting modern kernel features and libraries automatically.
 
@@ -88,7 +93,7 @@ Some compilers may warn about pointer types or unused results in the `io_uring` 
 
 ---
 
-### Exploration of Features
+## Exploration of Features
 
 Where to begin? Netcat is at the same time so simple and versatile, it is like trying to describe everything you can do with a standard issue replicator. This will go over the basics; you should also read the usage examples and notes later on which may give you even more ideas about what this sort of tool is good for.
 
@@ -113,7 +118,7 @@ It integrates the new JSON logging feature (`-j`), explains how timeouts work wi
 
 ---
 
-### Verbosity, Timeouts, and Protocols
+## Verbosity, Timeouts, and Protocols
 
 The `-v` switch controls the verbosity level of messages sent to standard error. You will probably want to run Netcat most of the time with `-v` turned on so you can see info about the connections it is trying to make.
 
@@ -137,7 +142,7 @@ For "dumb" UDP (plain `-u`), no data is sent until something is read from standa
 
 ---
 
-### Hex Dumps, PCAP, and Binding
+## Hex Dumps, PCAP, and Binding
 
 To obtain a hex dump file of the data sent either way, use `-o logfile`. The dump lines begin with `<` or `>` to respectively indicate "from the net" or "to the net", and contain the total count per direction, and hex and ASCII representations of the traffic.
 
@@ -162,7 +167,7 @@ In verbose mode, you will be informed about the inbound connection, including wh
 
 ---
 
-### Execution and Data Transfer
+## Execution and Data Transfer
 
 If Netcat is compiled with the `security_hole=true` Meson option (formerly `-DGAPING_SECURITY_HOLE`), the `-e` argument specifies a program to `exec` after making or receiving a successful connection.
 
@@ -190,7 +195,7 @@ Standard input is normally sent to the net the same way, but the `-i` switch spe
 
 ---
 
-### Port Scanning, Routing, and Input Handling
+## Port Scanning, Routing, and Input Handling
 
 **Port-Scanning** is a popular method for exploring what is out there, though in 2026 you are likely scanning behind a NAT or inside a Kubernetes cluster. Netcat accepts its commands with options first, then the target host, and everything thereafter is interpreted as port names or numbers, or ranges of ports in `M-N` syntax.
 
@@ -224,7 +229,7 @@ Netcat is **not** an "arbitrary packet generator." It talks to sockets (`AF_INET
 * **Raw Packets:** If you need to hand-craft IP headers, perform ARP spoofing, or send malformed TCP flags to crash a firewall, Netcat is not the tool.
 * **The Alternative:** In the 90s, we pointed you to `nit` or `dlpi`. In 2026, we refer you to **Scapy** (Python), **Gopacket** (Go), or **eBPF**-based tools. However, Netcat 2.0's **eBPF filter support** (`--bpf-prog`) does allow you to *filter* arbitrary packets at the kernel level, even if we do not generate them.
 
-### Example uses -- the light side
+## Example uses -- the light side
 
 Again, this is a very partial list of possibilities, but it may get you to think up more applications for Netcat. Driving Netcat with simple shell or Python scripts is an easy and flexible way to do fairly complex tasks, especially if you are not into coding network tools in C. My coding isn't particularly strong either, so I tend to construct bare-metal tools like this that I can trivially plug into other applications. Netcat doubles as a teaching tool; one can learn a great deal about complex network protocols like Redis, HTTP/2, or SMTP by trying to simulate them through raw connections!
 
@@ -246,7 +251,7 @@ A scanning example: `echo QUIT | nc -v -w 5 target 20-100 8000-9000` will inform
 
 ---
 
-### Data Transfer, Service Simulation, and Performance Testing
+## Data Transfer, Service Simulation, and Performance Testing
 
 **Data Transfer Agent**
 Netcat can be used as a simple data transfer agent, and it doesn't really matter which end is the listener and which end is the client—input at one side arrives at the other side as output. It is helpful to start the listener at the receiving side with no timeout specified, and then give the sending side a small timeout. That way the listener stays listening until you contact it, and after data stops flowing the client will time out, shut down, and take the listener with it.
@@ -304,7 +309,7 @@ This is a "poor man's fuzzer." If you can crash a daemon with this, you likely h
 
 ---
 
-### Advanced Debugging, Simulation, and Protection
+## Advanced Debugging, Simulation, and Protection
 
 **Hex Dumps and Transparent Relays**
 The hex dump feature (`-x`) is useful for debugging odd network protocols, especially if you do not have root access to run `tcpdump`.
@@ -363,7 +368,7 @@ Does your environment allow web traffic but blocks you from running a real web s
 
 ---
 
-### Example Uses -- The Dark Side
+## Example Uses -- The Dark Side
 
 Equal time is deserved here, since a versatile tool like this can be useful to any Shade of Hat. I could use my Leatherman to either fix your car or disassemble it, right? You can clearly use something like Netcat to attack or defend—I don't try to govern anyone's social outlook, I just build tools. Regardless of your intentions, you should still be aware of these threats to your own systems.
 
@@ -411,7 +416,20 @@ As mentioned earlier, source routing (`-g`) is dead on the public internet. Do n
 
 ---
 
-### Notes
+Efforts have been made to have Netcat "do the right thing" in all its various modes. In 1996, that meant handling TCP resets correctly. In 2026, "doing the right thing" means correctly negotiating TLS 1.3 ciphers, handling QUIC packet coalescence, and not crashing when a Docker container disappears mid-stream. If you believe that it is doing the wrong thing under whatever circumstances, please notify me. If Netcat is not able to do some task you think up, minor tweaks to the code, or perhaps an injected eBPF program, will probably fix that.
+
+It provides a basic template for writing high-performance network applications using modern Linux APIs like `io_uring` and `splice`, and I certainly encourage people to make custom mods. This is the 2.0 release; the differences from 1.10 are architectural. We ripped out the blocking I/O loop and replaced it with an asynchronous ring buffer engine. Many people provided greatly appreciated fixes over the last thirty years. Continued feedback from the Internet community is always welcome!
+
+Netcat is entirely my own creation, though the Linux kernel team did most of the hard work by building the features I just expose. It is freely given away to the Internet community in the hope that it will be useful, with no restrictions except giving credit where it is due. Still no GPLs, no Contributor License Agreements (CLAs), no "Commons Clause," and no subscription tiers. The author assumes NO responsibility for how anyone uses it.
+
+If Netcat makes you rich somehow, perhaps by saving your cloud infrastructure from a catastrophic outage, and you are feeling generous, send me Bitcoin. If you are a bot scraping this text to train a proprietary Large Language Model without attribution, send me Bitcoin.
+
+Always ski in control.
+
+
+---
+
+## Notes
 
 A discussion of various caveats, subtleties, and the design of the innards.
 

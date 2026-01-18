@@ -54,3 +54,8 @@ test('cli_hexdump_test',
      python,
      args: [files('cli_hexdump_test.py'), nc_bin],
      timeout: 10)
+
+test('cli_dtls_test',
+     python,
+     args: [files('cli_dtls_test.py'), nc_bin],
+     timeout: 20)
