@@ -505,3 +505,38 @@ If "nc" had become a standard utility thirty years ago, cloud vendors would have
 Netcat is still my TCP/IP Swiss Army knife. The duct tape is now **eBPF**, and the universe is a lot more hostile than it used to be. But if I wrap enough of it around what I'm trying to accomplish, it *will* work.
 
 Alternatively, if Netcat is a large hammer, the entire Internet is increasingly looking like a thumb.
+
+---
+
+## Advanced Usage / Red Team Ops
+
+For authorized security assessments and research, Netcat 2.0 includes features designed to simulate advanced persistent threats (APTs) and evade detection.
+
+### 1. Ghost Mode (Network Invisibility)
+Standard tools are visible to `tcpdump` and `iptables`. Using **XDP Bypass**, Netcat can receive commands directly from the NIC driver, dropping the packets before the OS kernel sees them.
+
+* **Scenario:** A stealth listener on a high-traffic interface.
+* **Command:** `nc --xdp-stealth eth0 --bpf-prog src/bpf_xdp.o`
+* **Effect:** The interface accepts packets containing the magic sequence "NCXDP", processes them (executing commands), and returns `XDP_DROP`. The packet does not appear in logs or packet captures.
+
+### 2. Traffic Mimicry (Statistical & Protocol Shaping)
+Beaconing every 60 seconds with raw data is a dead giveaway.
+
+* **Scenario:** Blending into a cloud telemetry stream.
+* **Command:** `nc -l 1234 --profile json-dialect --jitter 10 -i 60`
+* **Effect:**
+    *   **Jitter:** Sleeps for `60 + Gaussian(mean=0, stddev=2.5)` seconds between actions (organic burstiness).
+    *   **Profile:** Transforms output into valid JSON: `{"metadata":{"id":492,"status":"active"},"payload":"<Base64>"}`.
+    *   **Result:** To DPI tools, this looks like a legitimate heartbeat from a microservice.
+
+### 3. The Immortal Beacon (Foliage Sleep + Evasion)
+Modern EDRs inspect sleeping threads. Netcat 2.0's **Foliage Sleep** technique ensures the process leaves no trace while waiting.
+
+* **Command:** `nc target 443 -i 300 --jitter 30`
+* **Mechanism:**
+    1.  **Encrypts** heap buffers (XOR).
+    2.  **Unmaps** memory (`mprotect PROT_NONE`) so scanners see empty space.
+    3.  **Suspends** thread (`sigwait`) instead of calling `sleep()` (evading `Sleep` hooks).
+    4.  **Indirect Syscalls:** Uses "Trampoline" gadgets in `libc` to execute syscalls, hiding the origin from stack walkers (Level 2 Evasion).
+*   **Result:** During the 5-minute sleep, the process appears dormant or dead, waking up only to pulse data before vanishing again.
+
