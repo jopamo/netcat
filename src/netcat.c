@@ -123,6 +123,7 @@ char* vsock_port;
 int jitter;
 char* profile;
 int quic_mask;
+char* xdp_iface;
 
 void do_readwrite(int nfd, struct tls* tls_ctx) {
 #ifdef GAPING_SECURITY_HOLE
@@ -171,6 +172,7 @@ int main(int argc, char* argv[]) {
                                            {"jitter", required_argument, NULL, 1021},
                                            {"profile", required_argument, NULL, 1022},
                                            {"quic-mask", no_argument, NULL, 1023},
+                                           {"xdp-stealth", required_argument, NULL, 1024},
 #ifdef GAPING_SECURITY_HOLE
                                            {"exec", required_argument, NULL, 'e'},
 #endif
@@ -269,6 +271,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 1023:
                 quic_mask = 1;
+                break;
+            case 1024:
+                xdp_iface = optarg;
                 break;
             case '4':
                 family = AF_INET;
@@ -434,6 +439,14 @@ int main(int argc, char* argv[]) {
     }
     argc -= optind;
     argv += optind;
+
+    if (xdp_iface) {
+        if (!bpf_prog_path)
+            errx(1, "must specify --bpf-prog with --xdp-stealth");
+        if (load_xdp_stealth(bpf_prog_path, xdp_iface) == -1)
+            errx(1, "xdp stealth failed");
+        exit(0);
+    }
 
     if (rtableid >= 0)
         if (setrtable(rtableid) == -1)
