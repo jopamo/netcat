@@ -714,6 +714,21 @@ int main(int argc, char* argv[]) {
     if (lflag) {
         ret = 0;
 
+        if (uport) {
+            /* Validate port number (allow 0 for ephemeral listen ports). */
+            if (strcmp(uport, "0") != 0)
+                strtoport(uport, uflag);
+        }
+        else if (family != AF_UNIX && family != AF_VSOCK) {
+            /* Port required for TCP/UDP listen unless random port feature is explicit */
+            /* Assuming we want to enforce it based on TODO */
+            /* usage(1) would handle this if argc==0 checks were stricter */
+            /* But argc handling allows argc==0 for lflag? */
+            /* "if (argc == 0 && lflag) { ... }" in original code? No, it fell through. */
+            /* Let's error if uport is missing for IP sockets */
+            errx(1, "missing port number");
+        }
+
         if (family == AF_UNIX) {
             if (uflag)
                 s = unix_bind(host, 0);
@@ -795,7 +810,7 @@ int main(int argc, char* argv[]) {
                     err(1, "accept");
                 }
                 if (proxy_proto)
-                    recv_proxy_v2(connfd);
+                    recv_proxy(connfd);
                 if (vflag)
                     report_sock("Connection received", (struct sockaddr*)&cliaddr, len,
                                 family == AF_UNIX ? host : NULL);

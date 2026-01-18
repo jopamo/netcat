@@ -9,15 +9,15 @@
 static size_t hex_total_in, hex_total_out;
 
 /* Box-Muller transform to generate Gaussian random numbers */
-static double gaussian_random(double mean, double stddev) {
+double gaussian_random(double mean, double stddev) {
     static double V1, V2, S;
     static int phase = 0;
     double X;
 
     if (phase == 0) {
         do {
-            double U1 = (double)arc4random() / UINT32_MAX;
-            double U2 = (double)arc4random() / UINT32_MAX;
+            double U1 = (double)nc_random() / UINT32_MAX;
+            double U2 = (double)nc_random() / UINT32_MAX;
             V1 = 2 * U1 - 1;
             V2 = 2 * U2 - 1;
             S = V1 * V1 + V2 * V2;

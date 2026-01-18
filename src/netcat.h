@@ -112,6 +112,10 @@ extern int jitter;
 extern char* profile;
 extern int quic_mask;
 
+/* RNG hook for testing */
+extern uint32_t (*nc_random)(void);
+double gaussian_random(double mean, double stddev);
+
 int strtoport(char* portstr, int udp);
 void build_ports(char*);
 void help(void) __attribute__((noreturn));

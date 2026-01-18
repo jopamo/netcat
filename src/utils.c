@@ -1,5 +1,7 @@
 #include "netcat.h"
 
+uint32_t (*nc_random)(void) = arc4random;
+
 int strtoport(char* portstr, int udp) {
     struct servent* entry;
     const char* errstr;
@@ -11,7 +13,7 @@ int strtoport(char* portstr, int udp) {
     port = strtonum(portstr, 1, PORT_MAX, &errstr);
     if (errstr == NULL)
         return port;
-    if (errno != EINVAL)
+    if (strcmp(errstr, "invalid") != 0)
         errx(1, "port number %s: %s", errstr, portstr);
     if ((entry = getservbyname(portstr, proto)) == NULL)
         errx(1, "service \"%s\" unknown", portstr);

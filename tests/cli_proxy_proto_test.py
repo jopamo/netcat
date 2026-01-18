@@ -64,6 +64,11 @@ def run_proxy_proto_test(nc_path: str) -> None:
     client.stdin.flush()
     time.sleep(0.5)
     
+    # Check if client is still running
+    if client.poll() is not None:
+        print("Client exited early!")
+        print(f"Client stderr: {client.stderr.read()}")
+    
     client.kill()
     server.kill()
 
