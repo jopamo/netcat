@@ -148,6 +148,13 @@ Requires
 If not specified,
 .Ar destination
 is used.
+.Pp
+If compiled with
+.Cm GAPING_SECURITY_HOLE ,
+this option (also available as
+.Fl -exec )
+specifies the program to execute after connection (and overrides TLS name check).
+This is a dangerous feature and should be used with caution.
 .It Fl F
 Pass the first connected socket using
 .Xr sendmsg 2
@@ -196,6 +203,12 @@ and contain the total count per direction, and hex and ascii
 representations of the traffic.
 .It Fl I Ar length
 Specify the size of the TCP receive buffer.
+.It Fl -interface Ar name
+Bind to the network interface
+.Ar name
+using
+.Cm SO_BINDTODEVICE .
+This forces traffic to use the specified interface.
 .It Fl i Ar interval
 Sleep for
 .Ar interval
@@ -360,12 +373,14 @@ or one of the DiffServ Code Points:
 .Cm af11 No ... Cm af43 ,
 .Cm cs0 No ... Cm cs7 ;
 or a number in either hex or decimal.
+for further details).
+.It Fl -transparent
+Enable
+.Cm IP_TRANSPARENT
+socket option.
+Allows binding to non-local IP addresses, useful for transparent proxying.
 .It Fl U
-Use
-.Ux Ns -domain
-sockets.
-Cannot be used together with any of the options
-.Fl cFx .
+Use UNIX-domain sockets.
 .It Fl u
 Use UDP instead of TCP.
 Cannot be used together with

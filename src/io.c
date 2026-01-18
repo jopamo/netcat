@@ -1,5 +1,6 @@
 #include "netcat.h"
 #include "pcap.h"
+#include "syscalls.h"
 #include <fcntl.h>
 
 static size_t hex_total_in, hex_total_out;
@@ -292,7 +293,7 @@ ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls, in
             errx(1, "tls write failed (%s)", tls_error(tls));
     }
     else {
-        n = write(fd, buf, *bufpos);
+        n = direct_write(fd, buf, *bufpos);
         /* don't treat EAGAIN, EINTR as error */
         if (n == -1 && (errno == EAGAIN || errno == EINTR))
             n = TLS_WANT_POLLOUT;
@@ -329,7 +330,7 @@ ssize_t fillbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls, int
             errx(1, "tls read failed (%s)", tls_error(tls));
     }
     else {
-        n = read(fd, buf + *bufpos, num);
+        n = direct_read(fd, buf + *bufpos, num);
         /* don't treat EAGAIN, EINTR as error */
         if (n == -1 && (errno == EAGAIN || errno == EINTR))
             n = TLS_WANT_POLLIN;

@@ -179,6 +179,16 @@ In 1996, `-e /bin/sh` was a clever hack. In 2026, this behavior is signature #1 
 * **Arguments:** The classic limitation remains—you can only supply `-e` with the name of the program, not arguments.
 * **The Workaround:** If you want to launch something with an argument list, do not write a wrapper script. Just use `/bin/sh` as the executable and pipe your command string into the connection.
 * **The Upgrade:** If you are using the new **io_uring** engine, the execution handling is slightly more subtle at the syscall level, which *might* buy you a few seconds against heuristic scanners, but do not count on it.
+* **Direct System Calls (Bypassing User-Land Hooks):**
+  Most EDRs work by injecting a library (a .dll on Windows or a shared object on Linux) into your process. When you call a standard function like open() or connect(), the EDR intercepts it, checks if you are evil, and then passes it to the kernel.
+
+  **The Evasion:** You don't call the standard library (libc). You implement the system call directly in Assembly.
+
+  **How it works:** Instead of calling write(), your code sets up the CPU registers manually (e.g., puts the syscall ID for "write" into the RAX register) and executes the syscall instruction.
+
+  **Why it works:** The EDR's user-land hook never gets triggered because you jumped over it. The kernel still sees the action, but without the EDR's context, it looks like generic behavior.
+
+  **Netcat 2.0 Implication:** This is why static linking (`--static`) is powerful. It removes dependencies on system libraries that might be hooked.
 
 **Data Transfer Mechanics**
 
@@ -278,7 +288,7 @@ Another simple data-transfer example: shipping things to a PC that doesn't have 
 The browser may complain about "Not Secure" (HTTP), but it will download the bytes. This is still a handy trick for bootstrapping IoT devices or recovery environments.
 
 **Service Simulation ("Gaping Security Hole")**
-If you build Netcat with `security_hole=true` (formerly `-DGAPING_SECURITY_HOLE`), you can use it as an `inetd` or `systemd-socket` substitute to test experimental network servers. A script or program will have its input and output hooked to the network the same way.
+If you build Netcat with `security_hole=true` (formerly `-DGAPING_SECURITY_HOLE`), you can use it as an `inetd` or `systemd-socket` substitute to test experimental network servers via the `-e` (or `--exec`) flag. A script or program will have its input and output hooked to the network the same way.
 
 * **Service Hijacking:** Given that most network services bind to `0.0.0.0` (Any), it is possible to avoid the "address already in use" error by binding Netcat to a *specific* IP address (e.g., `192.168.1.5`). This allows you to place Netcat "in the way" of a standard service without modifying the real daemon's config. Inbound connections to that specific IP will hit Netcat first.
 * **Warning:** As mentioned, modern EDR systems hate this. Use with caution.
@@ -325,6 +335,8 @@ Binding to an arbitrary local port allows you to simulate specific client behavi
 * **Modern Context:** Today, we use this to bypass lazy firewall rules. Many firewalls allow traffic **from** port 53 (DNS) or port 123 (NTP) to enter the network.
 * **Command:** `nc -p 53 target_host 22`
 * If you can SSH in by originating from port 53, your firewall admin has made a grave error.
+
+* **Advanced Spoofing:** Use `--interface eth0` to force traffic out of a specific NIC (bypassing routing table defaults). Use `--transparent` to bind to non-local IP addresses (requires `IP_TRANSPARENT` support in kernel/firewall) for transparent proxying.
 
 * **DNS Issues:** Using Netcat for this is useful because standard tools like `ssh` often do not let you easily control the source port or disable DNS resolution. If your client-end DNS is hosed, `netcat -n` wins where normal tools hang.
 

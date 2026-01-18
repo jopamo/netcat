@@ -37,6 +37,7 @@
 #include "proxy_proto.h"
 #include "quic.h"
 #include "bpf.h"
+#include "syscalls.h"
 #include <getopt.h>
 #include <sched.h>
 #include <fcntl.h>
@@ -732,7 +733,7 @@ int main(int argc, char* argv[]) {
                 if (rv == -1)
                     err(1, "recvfrom");
 
-                rv = connect(s, (struct sockaddr*)&z, len);
+                rv = direct_connect(s, (struct sockaddr*)&z, len);
                 if (rv == -1)
                     err(1, "connect");
 

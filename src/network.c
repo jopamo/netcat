@@ -1,5 +1,6 @@
 #include "netcat.h"
 #include <stddef.h>
+#include "syscalls.h"
 
 #ifdef __linux__
 #include <linux/vm_sockets.h>
@@ -52,17 +53,17 @@ int vsock_listen(const char* cid_str, const char* port_str) {
     else
         svm.svm_port = (unsigned int)strtonum(port_str, 0, UINT_MAX, &errstr);
 
-    if ((s = socket(AF_VSOCK, SOCK_STREAM, 0)) == -1)
+    if ((s = direct_socket(AF_VSOCK, SOCK_STREAM, 0)) == -1)
         return -1;
 
     set_common_sockopts(s, AF_VSOCK);
 
-    if (bind(s, (struct sockaddr*)&svm, sizeof(svm)) == -1) {
+    if (direct_bind(s, (struct sockaddr*)&svm, sizeof(svm)) == -1) {
         close(s);
         return -1;
     }
 
-    if (listen(s, 5) == -1) {
+    if (direct_listen(s, 5) == -1) {
         close(s);
         return -1;
     }
@@ -91,12 +92,12 @@ int vsock_connect(const char* cid_str, const char* port_str) {
 
     svm.svm_port = (unsigned int)strtonum(port_str, 0, UINT_MAX, &errstr);
 
-    if ((s = socket(AF_VSOCK, SOCK_STREAM, 0)) == -1)
+    if ((s = direct_socket(AF_VSOCK, SOCK_STREAM, 0)) == -1)
         return -1;
 
     set_common_sockopts(s, AF_VSOCK);
 
-    if (connect(s, (struct sockaddr*)&svm, sizeof(svm)) == -1) {
+    if (direct_connect(s, (struct sockaddr*)&svm, sizeof(svm)) == -1) {
         close(s);
         return -1;
     }
@@ -114,7 +115,7 @@ int unix_bind(char* path, int flags) {
     socklen_t len;
 
     /* Create unix domain socket. */
-    if ((s = socket(AF_UNIX, flags | (uflag ? SOCK_DGRAM : SOCK_STREAM), 0)) == -1)
+    if ((s = direct_socket(AF_UNIX, flags | (uflag ? SOCK_DGRAM : SOCK_STREAM), 0)) == -1)
         return -1;
 
     memset(&s_un, 0, sizeof(struct sockaddr_un));
@@ -138,7 +139,7 @@ int unix_bind(char* path, int flags) {
         len = sizeof(s_un);
     }
 
-    if (bind(s, (struct sockaddr*)&s_un, len) == -1) {
+    if (direct_bind(s, (struct sockaddr*)&s_un, len) == -1) {
         save_errno = errno;
         close(s);
         errno = save_errno;
@@ -164,7 +165,7 @@ int unix_connect(char* path) {
             return -1;
     }
     else {
-        if ((s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0)) == -1)
+        if ((s = direct_socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0)) == -1)
             return -1;
     }
 
@@ -189,7 +190,7 @@ int unix_connect(char* path) {
         len = sizeof(s_un);
     }
 
-    if (connect(s, (struct sockaddr*)&s_un, len) == -1) {
+    if (direct_connect(s, (struct sockaddr*)&s_un, len) == -1) {
         save_errno = errno;
         close(s);
         errno = save_errno;
@@ -207,7 +208,7 @@ int unix_listen(char* path) {
 
     if ((s = unix_bind(path, 0)) == -1)
         return -1;
-    if (listen(s, 5) == -1) {
+    if (direct_listen(s, 5) == -1) {
         close(s);
         return -1;
     }
@@ -235,7 +236,7 @@ int remote_connect(const char* host, const char* port, struct addrinfo hints, ch
         if (mptcpflag && res->ai_protocol == IPPROTO_TCP)
             proto = IPPROTO_MPTCP;
 #endif
-        if ((s = socket(res->ai_family, res->ai_socktype | SOCK_NONBLOCK, proto)) == -1)
+        if ((s = direct_socket(res->ai_family, res->ai_socktype | SOCK_NONBLOCK, proto)) == -1)
             continue;
 
         /* Bind to a local port or source address if specified. */
@@ -252,7 +253,7 @@ int remote_connect(const char* host, const char* port, struct addrinfo hints, ch
             if ((error = getaddrinfo(sflag, pflag, &ahints, &ares)))
                 errx(1, "getaddrinfo: %s", gai_strerror(error));
 
-            if (bind(s, (struct sockaddr*)ares->ai_addr, ares->ai_addrlen) == -1)
+            if (direct_bind(s, (struct sockaddr*)ares->ai_addr, ares->ai_addrlen) == -1)
                 err(1, "bind failed");
             freeaddrinfo(ares);
         }
@@ -299,7 +300,7 @@ int timeout_connect(int s, const struct sockaddr* name, socklen_t namelen) {
     int optval;
     int ret;
 
-    if ((ret = connect(s, name, namelen)) != 0 && errno == EINPROGRESS) {
+    if ((ret = direct_connect(s, name, namelen)) != 0 && errno == EINPROGRESS) {
         pfd.fd = s;
         pfd.events = POLLOUT;
         if ((ret = poll(&pfd, 1, timeout)) == 1) {
@@ -349,7 +350,7 @@ int local_listen(const char* host, const char* port, struct addrinfo hints) {
         if (mptcpflag && res->ai_protocol == IPPROTO_TCP)
             proto = IPPROTO_MPTCP;
 #endif
-        if ((s = socket(res->ai_family, res->ai_socktype, proto)) == -1)
+        if ((s = direct_socket(res->ai_family, res->ai_socktype, proto)) == -1)
             continue;
 
         ret = setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &x, sizeof(x));
@@ -358,7 +359,7 @@ int local_listen(const char* host, const char* port, struct addrinfo hints) {
 
         set_common_sockopts(s, res->ai_family);
 
-        if (bind(s, (struct sockaddr*)res->ai_addr, res->ai_addrlen) == 0)
+        if (direct_bind(s, (struct sockaddr*)res->ai_addr, res->ai_addrlen) == 0)
             break;
 
         save_errno = errno;
@@ -368,7 +369,7 @@ int local_listen(const char* host, const char* port, struct addrinfo hints) {
     }
 
     if (!uflag && s != -1) {
-        if (listen(s, 1) == -1)
+        if (direct_listen(s, 1) == -1)
             err(1, "listen");
     }
     if (vflag && s != -1) {
@@ -399,7 +400,7 @@ int udptest(int s) {
         return 0;
 
     for (i = 0; i <= 3; i++) {
-        if (write(s, "X", 1) == 1)
+        if (direct_write(s, "X", 1) == 1)
             ret = 1;
         else
             ret = -1;
