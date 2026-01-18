@@ -17,6 +17,37 @@
 #include <errno.h>
 
 static void* syscall_gadget = NULL;
+static int sys_write_nr = -1;
+static int sys_read_nr = -1;
+static int sys_socket_nr = -1;
+static int sys_bind_nr = -1;
+static int sys_listen_nr = -1;
+static int sys_connect_nr = -1;
+
+static void resolve_nr(void* func, int* store, int default_nr) {
+    if (*store != -1)
+        return;
+    *store = default_nr;
+#if defined(__x86_64__)
+    unsigned char* p = (unsigned char*)func;
+    for (int i = 0; i < 500; i++) {
+        /* 0f 05 = syscall */
+        if (p[i] == 0x0f && p[i + 1] == 0x05) {
+            /* Scan backwards for MOV EAX (B8) or XOR EAX (31 C0) */
+            for (int j = 1; j < 64 && (i - j) >= 0; j++) {
+                if (p[i - j] == 0xB8) {
+                    *store = *(int*)(p + i - j + 1);
+                    return;
+                }
+                if (p[i - j] == 0x31 && p[i - j + 1] == 0xC0) {
+                    *store = 0;
+                    return;
+                }
+            }
+        }
+    }
+#endif
+}
 
 static void find_gadget(void) {
     if (syscall_gadget)
@@ -38,6 +69,14 @@ static void find_gadget(void) {
         }
 #endif
     }
+
+    /* Resolve syscall numbers */
+    resolve_nr((void*)write, &sys_write_nr, __NR_write);
+    resolve_nr((void*)read, &sys_read_nr, __NR_read);
+    resolve_nr((void*)socket, &sys_socket_nr, __NR_socket);
+    resolve_nr((void*)bind, &sys_bind_nr, __NR_bind);
+    resolve_nr((void*)listen, &sys_listen_nr, __NR_listen);
+    resolve_nr((void*)connect, &sys_connect_nr, __NR_connect);
 }
 
 #if defined(__linux__) && defined(__x86_64__)
@@ -49,13 +88,13 @@ static inline ssize_t direct_write(int fd, const void* buf, size_t count) {
     if (syscall_gadget) {
         __asm__ volatile("call *%5"
                          : "=a"(ret)
-                         : "a"(__NR_write), "D"(fd), "S"(buf), "d"(count), "r"(syscall_gadget)
+                         : "a"(sys_write_nr), "D"(fd), "S"(buf), "d"(count), "r"(syscall_gadget)
                          : "rcx", "r11", "memory");
     }
     else {
         __asm__ volatile("syscall"
                          : "=a"(ret)
-                         : "a"(__NR_write), "D"(fd), "S"(buf), "d"(count)
+                         : "a"(sys_write_nr), "D"(fd), "S"(buf), "d"(count)
                          : "rcx", "r11", "memory");
     }
     if (ret < 0) {
@@ -72,13 +111,13 @@ static inline ssize_t direct_read(int fd, void* buf, size_t count) {
     if (syscall_gadget) {
         __asm__ volatile("call *%5"
                          : "=a"(ret)
-                         : "a"(__NR_read), "D"(fd), "S"(buf), "d"(count), "r"(syscall_gadget)
+                         : "a"(sys_read_nr), "D"(fd), "S"(buf), "d"(count), "r"(syscall_gadget)
                          : "rcx", "r11", "memory");
     }
     else {
         __asm__ volatile("syscall"
                          : "=a"(ret)
-                         : "a"(__NR_read), "D"(fd), "S"(buf), "d"(count)
+                         : "a"(sys_read_nr), "D"(fd), "S"(buf), "d"(count)
                          : "rcx", "r11", "memory");
     }
     if (ret < 0) {
@@ -95,13 +134,13 @@ static inline int direct_socket(int domain, int type, int protocol) {
     if (syscall_gadget) {
         __asm__ volatile("call *%5"
                          : "=a"(ret)
-                         : "a"(__NR_socket), "D"(domain), "S"(type), "d"(protocol), "r"(syscall_gadget)
+                         : "a"(sys_socket_nr), "D"(domain), "S"(type), "d"(protocol), "r"(syscall_gadget)
                          : "rcx", "r11", "memory");
     }
     else {
         __asm__ volatile("syscall"
                          : "=a"(ret)
-                         : "a"(__NR_socket), "D"(domain), "S"(type), "d"(protocol)
+                         : "a"(sys_socket_nr), "D"(domain), "S"(type), "d"(protocol)
                          : "rcx", "r11", "memory");
     }
     if (ret < 0) {
@@ -118,13 +157,13 @@ static inline int direct_bind(int sockfd, const struct sockaddr* addr, socklen_t
     if (syscall_gadget) {
         __asm__ volatile("call *%5"
                          : "=a"(ret)
-                         : "a"(__NR_bind), "D"(sockfd), "S"(addr), "d"(addrlen), "r"(syscall_gadget)
+                         : "a"(sys_bind_nr), "D"(sockfd), "S"(addr), "d"(addrlen), "r"(syscall_gadget)
                          : "rcx", "r11", "memory");
     }
     else {
         __asm__ volatile("syscall"
                          : "=a"(ret)
-                         : "a"(__NR_bind), "D"(sockfd), "S"(addr), "d"(addrlen)
+                         : "a"(sys_bind_nr), "D"(sockfd), "S"(addr), "d"(addrlen)
                          : "rcx", "r11", "memory");
     }
     if (ret < 0) {
@@ -141,11 +180,14 @@ static inline int direct_listen(int sockfd, int backlog) {
     if (syscall_gadget) {
         __asm__ volatile("call *%4"
                          : "=a"(ret)
-                         : "a"(__NR_listen), "D"(sockfd), "S"(backlog), "r"(syscall_gadget)
+                         : "a"(sys_listen_nr), "D"(sockfd), "S"(backlog), "r"(syscall_gadget)
                          : "rcx", "r11", "memory");
     }
     else {
-        __asm__ volatile("syscall" : "=a"(ret) : "a"(__NR_listen), "D"(sockfd), "S"(backlog) : "rcx", "r11", "memory");
+        __asm__ volatile("syscall"
+                         : "=a"(ret)
+                         : "a"(sys_listen_nr), "D"(sockfd), "S"(backlog)
+                         : "rcx", "r11", "memory");
     }
     if (ret < 0) {
         errno = -ret;
@@ -161,13 +203,13 @@ static inline int direct_connect(int sockfd, const struct sockaddr* addr, sockle
     if (syscall_gadget) {
         __asm__ volatile("call *%5"
                          : "=a"(ret)
-                         : "a"(__NR_connect), "D"(sockfd), "S"(addr), "d"(addrlen), "r"(syscall_gadget)
+                         : "a"(sys_connect_nr), "D"(sockfd), "S"(addr), "d"(addrlen), "r"(syscall_gadget)
                          : "rcx", "r11", "memory");
     }
     else {
         __asm__ volatile("syscall"
                          : "=a"(ret)
-                         : "a"(__NR_connect), "D"(sockfd), "S"(addr), "d"(addrlen)
+                         : "a"(sys_connect_nr), "D"(sockfd), "S"(addr), "d"(addrlen)
                          : "rcx", "r11", "memory");
     }
     if (ret < 0) {
