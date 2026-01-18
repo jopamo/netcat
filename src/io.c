@@ -5,6 +5,43 @@
 
 static size_t hex_total_in, hex_total_out;
 
+static void rolling_xor(const unsigned char* in,
+                        size_t len,
+                        unsigned char* out,
+                        const unsigned char* key,
+                        size_t key_len) {
+    size_t i;
+    for (i = 0; i < len; i++) {
+        out[i] = in[i] ^ key[i % key_len];
+    }
+}
+
+static int base64_encode(const unsigned char* in, size_t in_len, char* out, size_t out_len) {
+    static const char set[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    char* p = out;
+    size_t i;
+    int val = 0;
+    int valb = -6;
+
+    if (out_len < (in_len * 4 / 3) + 5)
+        return -1;
+
+    for (i = 0; i < in_len; i++) {
+        val = (val << 8) + in[i];
+        valb += 8;
+        while (valb >= 0) {
+            *p++ = set[(val >> valb) & 0x3F];
+            valb -= 6;
+        }
+    }
+    if (valb > -6)
+        *p++ = set[((val << 8) >> (valb + 8)) & 0x3F];
+    while ((p - out) % 4)
+        *p++ = '=';
+    *p = 0;
+    return p - out;
+}
+
 void splice_loop(int net_fd) {
     int p_in[2], p_out[2];
     struct pollfd pfd[4];
@@ -137,8 +174,12 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
         /* help says -i is for "wait between lines sent". We read and
          * write arbitrary amounts of data, and we don't want to start
          * scanning for newlines, so this is as good as it gets */
-        if (iflag)
-            sleep(iflag);
+        if (iflag) {
+            int s = iflag;
+            if (jitter)
+                s += arc4random_uniform(jitter);
+            sleep(s);
+        }
 
         /* try to fill buffer for fuzzing */
         if (((fuzz_tcp && !uflag) || (fuzz_udp && uflag)) && stdinbufpos < BUFSIZE) {
@@ -287,26 +328,123 @@ ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls, in
     if (fd == -1)
         return -1;
 
-    if (tls) {
-        n = tls_write(tls, buf, *bufpos);
-        if (n == -1)
-            errx(1, "tls write failed (%s)", tls_error(tls));
+    /* Apply Traffic Masking/Shaping when writing to network */
+    if (fd == net_fd && (profile || quic_mask)) {
+        unsigned char temp_buf[BUFSIZE * 2];
+        unsigned char* write_buf = temp_buf;
+        size_t write_len = 0;
+        size_t original_len = *bufpos;
+
+        /* Cap at BUFSIZE to ensure we fit in temp_buf with expansion */
+        if (original_len > BUFSIZE)
+            original_len = BUFSIZE;
+
+        /* Malleable Profile */
+        if (profile) {
+            if (strcmp(profile, "html") == 0) {
+                snprintf((char*)temp_buf, sizeof(temp_buf), "<!-- %.*s -->", (int)original_len, buf);
+                write_len = strlen((char*)temp_buf);
+            }
+            else if (strcmp(profile, "css") == 0) {
+                snprintf((char*)temp_buf, sizeof(temp_buf), "/* %.*s */", (int)original_len, buf);
+                write_len = strlen((char*)temp_buf);
+            }
+            else if (strcmp(profile, "base64-json") == 0) {
+                char b64[BUFSIZE * 2];
+                if (base64_encode(buf, original_len, b64, sizeof(b64)) != -1) {
+                    snprintf((char*)temp_buf, sizeof(temp_buf),
+                             "{\"status\": \"success\", \"session_id\": \"89234\", \"debug_trace\": \"%s\"}", b64);
+                    write_len = strlen((char*)temp_buf);
+                }
+                else {
+                    memcpy(temp_buf, buf, original_len);
+                    write_len = original_len;
+                }
+            }
+            else if (strcmp(profile, "xor-mask") == 0) {
+                /* 4-byte rolling key: DE AD BE EF */
+                unsigned char key[] = {0xDE, 0xAD, 0xBE, 0xEF};
+                rolling_xor(buf, original_len, temp_buf, key, sizeof(key));
+                write_len = original_len;
+                write_buf = temp_buf;
+            }
+            else {
+                /* Unknown profile, just copy */
+                memcpy(temp_buf, buf, original_len);
+                write_len = original_len;
+            }
+        }
+        else {
+            memcpy(temp_buf, buf, original_len);
+            write_len = original_len;
+        }
+
+        /* QUIC Masking (Padding) */
+        if (quic_mask && write_len < 1350 && sizeof(temp_buf) > 1350) {
+            memset(write_buf + write_len, 'X', 1350 - write_len);
+            write_len = 1350;
+        }
+
+        /* Blocking write loop to ensure masked packet is sent intact */
+        size_t total_written = 0;
+        while (total_written < write_len) {
+            ssize_t res;
+            if (tls) {
+                res = tls_write(tls, write_buf + total_written, write_len - total_written);
+                if (res == -1)
+                    errx(1, "tls write failed (%s)", tls_error(tls));
+            }
+            else {
+                res = direct_write(fd, write_buf + total_written, write_len - total_written);
+            }
+
+            if (res == -1) {
+                if (errno == EAGAIN || errno == EINTR) {
+                    usleep(1000);
+                    continue;
+                }
+                return -1;
+            }
+            if (res == TLS_WANT_POLLIN || res == TLS_WANT_POLLOUT) {
+                usleep(1000);
+                continue;
+            }
+            total_written += res;
+        }
+
+        /* We pretend we wrote 'original_len' of the input buffer */
+        n = original_len;
+
+        if (pcapfile)
+            pcap_log(fd, write_buf, write_len, 1);
+
+        if (hex_fp) {
+            hexdump(hex_fp, ">", write_buf, write_len, hex_total_out);
+            hex_total_out += write_len;
+        }
     }
     else {
-        n = direct_write(fd, buf, *bufpos);
-        /* don't treat EAGAIN, EINTR as error */
-        if (n == -1 && (errno == EAGAIN || errno == EINTR))
-            n = TLS_WANT_POLLOUT;
-    }
-    if (n <= 0)
-        return n;
+        if (tls) {
+            n = tls_write(tls, buf, *bufpos);
+            if (n == -1)
+                errx(1, "tls write failed (%s)", tls_error(tls));
+        }
+        else {
+            n = direct_write(fd, buf, *bufpos);
+            /* don't treat EAGAIN, EINTR as error */
+            if (n == -1 && (errno == EAGAIN || errno == EINTR))
+                n = TLS_WANT_POLLOUT;
+        }
+        if (n <= 0)
+            return n;
 
-    if (pcapfile)
-        pcap_log(fd, buf, n, 1);
+        if (pcapfile)
+            pcap_log(fd, buf, n, 1);
 
-    if (hex_fp && fd == net_fd) {
-        hexdump(hex_fp, ">", buf, n, hex_total_out);
-        hex_total_out += n;
+        if (hex_fp && fd == net_fd) {
+            hexdump(hex_fp, ">", buf, n, hex_total_out);
+            hex_total_out += n;
+        }
     }
 
     /* adjust buffer */

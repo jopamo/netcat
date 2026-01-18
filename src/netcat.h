@@ -108,6 +108,10 @@ extern int minttl;
 extern char* vsock_cid;
 extern char* vsock_port;
 
+extern int jitter;
+extern char* profile;
+extern int quic_mask;
+
 int strtoport(char* portstr, int udp);
 void build_ports(char*);
 void help(void) __attribute__((noreturn));

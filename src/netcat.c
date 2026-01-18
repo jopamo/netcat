@@ -120,6 +120,10 @@ int minttl = -1;
 char* vsock_cid;
 char* vsock_port;
 
+int jitter;
+char* profile;
+int quic_mask;
+
 void do_readwrite(int nfd, struct tls* tls_ctx) {
 #ifdef GAPING_SECURITY_HOLE
     if (exec_path) {
@@ -164,6 +168,9 @@ int main(int argc, char* argv[]) {
                                            {"interface", required_argument, NULL, 1018},
                                            {"transparent", no_argument, NULL, 1019},
                                            {"bpf-evasion", required_argument, NULL, 1020},
+                                           {"jitter", required_argument, NULL, 1021},
+                                           {"profile", required_argument, NULL, 1022},
+                                           {"quic-mask", no_argument, NULL, 1023},
 #ifdef GAPING_SECURITY_HOLE
                                            {"exec", required_argument, NULL, 'e'},
 #endif
@@ -251,6 +258,17 @@ int main(int argc, char* argv[]) {
                 bpf_evasion_path = optarg;
                 if (load_bpf_tracepoint(bpf_evasion_path) == -1)
                     errx(1, "bpf evasion load failed");
+                break;
+            case 1021:
+                jitter = strtonum(optarg, 0, INT_MAX, &errstr);
+                if (errstr)
+                    errx(1, "jitter is %s", errstr);
+                break;
+            case 1022:
+                profile = optarg;
+                break;
+            case 1023:
+                quic_mask = 1;
                 break;
             case '4':
                 family = AF_INET;
