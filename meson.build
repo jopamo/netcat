@@ -50,14 +50,19 @@ else
 endif
 
 srcs = [
-  'netcat.c',
-  'atomicio.c',
-  'socks.c',
+  'src/netcat.c',
+  'src/atomicio.c',
+  'src/socks.c',
+  'src/io.c',
+  'src/network.c',
+  'src/tls.c',
+  'src/utils.c',
+  'src/log.c',
   'compat/tls_compat.c',
   'compat/openbsd_compat.c'
 ]
 
-inc = include_directories('.', 'compat')
+inc = include_directories('src', 'compat')
 
 nc_bin = executable('nc',
   srcs,
@@ -65,6 +70,6 @@ nc_bin = executable('nc',
   dependencies : deps,
   install : true)
 
-install_man('nc.1')
+install_man('man/nc.1')
 
 subdir('tests')

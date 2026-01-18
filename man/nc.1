@@ -32,8 +32,8 @@
 .Nm nc
 .Nd arbitrary TCP and UDP connections and listens
 .Sh SYNOPSIS
-.Nm nc
-.Op Fl 46cDdFhklNnrStUuvz
+.Nm
+.Op Fl 46cDdFhklNnrSUuvz
 .Op Fl C Ar certfile
 .Op Fl e Ar name
 .Op Fl H Ar hash
@@ -286,11 +286,6 @@ or one of the DiffServ Code Points:
 .Cm af11 No ... Cm af43 ,
 .Cm cs0 No ... Cm cs7 ;
 or a number in either hex or decimal.
-.It Fl t
-Send RFC 854 DON'T and WON'T responses to RFC 854 DO and WILL requests.
-This makes it possible to use
-.Nm
-to script telnet sessions.
 .It Fl U
 Use
 .Ux Ns -domain
