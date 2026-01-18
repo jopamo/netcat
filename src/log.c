@@ -103,6 +103,7 @@ void usage(int ret) {
             "[-w timeout]\n"
             "\t  [-X proxy_protocol] [-x proxy_address[:port]] "
             "[-Z peercertfile]\n"
+            "\t  [--interface interface] [--transparent]\n"
             "\t  [destination] [port]\n");
     if (ret)
         exit(1);

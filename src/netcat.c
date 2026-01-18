@@ -62,6 +62,8 @@ char* Pflag;         /* Proxy username */
 char* pflag;         /* Localport flag */
 int rflag;           /* Random ports flag */
 char* sflag;         /* Source Address */
+char* iface;         /* Interface to bind to */
+int transparent;     /* IP_TRANSPARENT */
 int uflag;           /* UDP - Default to TCP */
 int vflag;           /* Verbosity */
 int xflag;           /* Socks proxy */
@@ -97,6 +99,7 @@ const char* oflag;    /* OCSP stapling file */
 const char* Rflag;    /* Root CA file */
 int tls_cachanged;    /* Using non-default CA file */
 int TLSopt;           /* TLS options */
+char* exec_path;      /* program to exec */
 char* tls_expectname; /* required name in peer cert */
 char* tls_expecthash; /* required hash of peer cert */
 char* tls_ciphers;    /* TLS ciphers */
@@ -114,6 +117,15 @@ int minttl = -1;
 
 char* vsock_cid;
 char* vsock_port;
+
+void do_readwrite(int nfd, struct tls* tls_ctx) {
+#ifdef GAPING_SECURITY_HOLE
+    if (exec_path) {
+        spawn_exec(nfd);
+    }
+#endif
+    readwrite(nfd, tls_ctx);
+}
 
 int main(int argc, char* argv[]) {
     int ch, s = -1, ret, socksv;
@@ -147,12 +159,18 @@ int main(int argc, char* argv[]) {
                                            {"hex-dump", required_argument, NULL, 1015},
                                            {"bpf-prog", required_argument, NULL, 1016},
                                            {"keep-open", no_argument, NULL, 1017},
+                                           {"interface", required_argument, NULL, 1018},
+                                           {"transparent", no_argument, NULL, 1019},
+#ifdef GAPING_SECURITY_HOLE
+                                           {"exec", required_argument, NULL, 'e'},
+#endif
                                            {NULL, 0, NULL, 0}};
 
     ret = 1;
     socksv = 5;
     host = NULL;
     uport = NULL;
+    exec_path = NULL;
     Rflag = tls_default_ca_cert_file();
 
     signal(SIGPIPE, SIG_IGN);
@@ -220,6 +238,12 @@ int main(int argc, char* argv[]) {
             case 1017:
                 keepopen = 1;
                 break;
+            case 1018:
+                iface = optarg;
+                break;
+            case 1019:
+                transparent = 1;
+                break;
             case '4':
                 family = AF_INET;
                 break;
@@ -250,7 +274,11 @@ int main(int argc, char* argv[]) {
                 dflag = 1;
                 break;
             case 'e':
+#ifdef GAPING_SECURITY_HOLE
+                exec_path = optarg;
+#else
                 tls_expectname = optarg;
+#endif
                 break;
             case 'F':
                 Fflag = 1;
@@ -687,7 +715,7 @@ int main(int argc, char* argv[]) {
                  * let it receive datagrams from multiple
                  * socket pairs.
                  */
-                readwrite(s, NULL);
+                do_readwrite(s, NULL);
             }
             else if (uflag && !keepopen) {
                 /*
@@ -715,7 +743,7 @@ int main(int argc, char* argv[]) {
                 if (vflag)
                     report_sock("Connection received", (struct sockaddr*)&z, len, family == AF_UNIX ? host : NULL);
 
-                readwrite(s, NULL);
+                do_readwrite(s, NULL);
             }
             else {
                 struct tls* tls_cctx = NULL;
@@ -733,9 +761,9 @@ int main(int argc, char* argv[]) {
                     report_sock("Connection received", (struct sockaddr*)&cliaddr, len,
                                 family == AF_UNIX ? host : NULL);
                 if ((usetls) && (tls_cctx = tls_setup_server(tls_ctx, connfd, host)))
-                    readwrite(connfd, tls_cctx);
+                    do_readwrite(connfd, tls_cctx);
                 if (!usetls)
-                    readwrite(connfd, NULL);
+                    do_readwrite(connfd, NULL);
                 if (tls_cctx)
                     timeout_tls(s, tls_cctx, tls_close);
                 close(connfd);
@@ -751,7 +779,7 @@ int main(int argc, char* argv[]) {
 
         if ((s = unix_connect(host)) > 0) {
             if (!zflag)
-                readwrite(s, NULL);
+                do_readwrite(s, NULL);
             close(s);
         }
         else {
@@ -768,7 +796,7 @@ int main(int argc, char* argv[]) {
 
         if ((s = vsock_connect(vsock_cid, vsock_port)) > 0) {
             if (!zflag)
-                readwrite(s, NULL);
+                do_readwrite(s, NULL);
             close(s);
         }
         else {
@@ -850,7 +878,7 @@ int main(int argc, char* argv[]) {
                 if (usetls)
                     tls_setup_client(tls_ctx, s, host);
                 if (!zflag)
-                    readwrite(s, tls_ctx);
+                    do_readwrite(s, tls_ctx);
                 if (tls_ctx)
                     timeout_tls(s, tls_ctx, tls_close);
             }

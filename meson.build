@@ -50,6 +50,26 @@ if libbpf.found()
   add_project_arguments('-DHAVE_LIBBPF', language : 'c')
 endif
 
+# libcap for namespace/privilege operations
+libcap = dependency('libcap', required : false)
+if libcap.found()
+  deps += libcap
+  add_project_arguments('-DHAVE_LIBCAP', language : 'c')
+endif
+
+if host_machine.system() == 'linux'
+  uname = find_program('uname')
+  r = run_command(uname, '-r', check: true)
+  kv = r.stdout().strip()
+  if kv.version_compare('< 5.10')
+    warning('Kernel version ' + kv + ' is older than 5.10. io_uring and KTLS might not be supported.')
+  endif
+endif
+
+if get_option('security_hole')
+  add_project_arguments('-DGAPING_SECURITY_HOLE', language : 'c')
+endif
+
 # Check for readpassphrase.h location
 if cc.has_header('bsd/readpassphrase.h')
   add_project_arguments('-DHAVE_BSD_READPASSPHRASE_H', language : 'c')

@@ -504,6 +504,22 @@ void set_common_sockopts(int s, int af) {
     }
 #endif
 
+#ifdef SO_BINDTODEVICE
+    if (iface != NULL) {
+        if (setsockopt(s, SOL_SOCKET, SO_BINDTODEVICE, iface, strlen(iface)) == -1)
+            err(1, "set SO_BINDTODEVICE");
+    }
+#endif
+
+    if (transparent) {
+#ifdef IP_TRANSPARENT
+        if (af == AF_INET || af == AF_INET6) {
+            if (setsockopt(s, SOL_IP, IP_TRANSPARENT, &x, sizeof(x)) == -1)
+                err(1, "set IP_TRANSPARENT");
+        }
+#endif
+    }
+
     if (tfoflag) {
 #ifdef TCP_FASTOPEN_CONNECT
         if (!lflag) {

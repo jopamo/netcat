@@ -70,6 +70,8 @@ extern char* Pflag;        /* Proxy username */
 extern char* pflag;        /* Localport flag */
 extern int rflag;          /* Random ports flag */
 extern char* sflag;        /* Source Address */
+extern char* iface;        /* Interface to bind to */
+extern int transparent;    /* IP_TRANSPARENT */
 extern int uflag;          /* UDP - Default to TCP */
 extern int vflag;          /* Verbosity */
 extern int xflag;          /* Socks proxy */
@@ -87,6 +89,7 @@ extern const char* oflag;    /* OCSP stapling file */
 extern const char* Rflag;    /* Root CA file */
 extern int tls_cachanged;    /* Using non-default CA file */
 extern int TLSopt;           /* TLS options */
+extern char* exec_path;      /* program to exec */
 extern char* tls_expectname; /* required name in peer cert */
 extern char* tls_expecthash; /* required hash of peer cert */
 extern char* tls_ciphers;    /* TLS ciphers */
@@ -135,6 +138,10 @@ int process_tls_opt(char*, int*);
 void save_peer_cert(struct tls* _tls_ctx, FILE* _fp);
 void report_sock(const char*, const struct sockaddr*, socklen_t, char*);
 void report_tls(struct tls* tls_ctx, char* host);
+void vsock_report(const char*, const char*, int);
+#ifdef GAPING_SECURITY_HOLE
+void spawn_exec(int);
+#endif
 void usage(int);
 void hexdump(FILE* fp, const char* prefix, const unsigned char* buf, size_t len, size_t total);
 ssize_t drainbuf(int, unsigned char*, size_t*, struct tls*, int);

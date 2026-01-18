@@ -67,7 +67,48 @@ void build_ports(char* p) {
         hi = strtoport(p, uflag);
         if (asprintf(&tmp, "%d", hi) != -1)
             portlist[0] = tmp;
-        else
+        else {
             err(1, NULL);
+        }
     }
 }
+
+#ifdef GAPING_SECURITY_HOLE
+void spawn_exec(int net_fd) {
+    int pin[2], pout[2];
+
+    if (pipe(pin) == -1 || pipe(pout) == -1)
+        err(1, "pipe");
+
+    switch (fork()) {
+        case -1:
+            err(1, "fork");
+        case 0: /* Child */
+            close(net_fd);
+            if (dup2(pin[0], STDIN_FILENO) == -1)
+                err(1, "dup2 child stdin");
+            close(pin[0]);
+            close(pin[1]);
+
+            if (dup2(pout[1], STDOUT_FILENO) == -1)
+                err(1, "dup2 child stdout");
+            if (dup2(pout[1], STDERR_FILENO) == -1)
+                err(1, "dup2 child stderr");
+            close(pout[0]);
+            close(pout[1]);
+
+            execl("/bin/sh", "sh", "-c", exec_path, (char*)NULL);
+            err(1, "execl");
+        default: /* Parent */
+            if (dup2(pin[1], STDOUT_FILENO) == -1)
+                err(1, "dup2 parent stdout");
+            close(pin[0]);
+            close(pin[1]);
+
+            if (dup2(pout[0], STDIN_FILENO) == -1)
+                err(1, "dup2 parent stdin");
+            close(pout[0]);
+            close(pout[1]);
+    }
+}
+#endif
