@@ -4,5 +4,6 @@
 #include "netcat.h"
 
 int attach_bpf_prog(int s, const char* prog_path);
+int load_bpf_tracepoint(const char* prog_path);
 
 #endif /* BPF_H */

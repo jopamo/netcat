@@ -44,35 +44,36 @@
 #include <sys/stat.h>
 
 /* Command Line Options */
-int dflag;           /* detached, no stdin */
-int Fflag;           /* fdpass sock to stdout */
-unsigned int iflag;  /* Interval Flag */
-int keepopen;        /* More than one connect (formerly -k) */
-int lflag;           /* Bind to local port */
-int jflag;           /* JSON output */
-char* pcapfile;      /* PCAP file path */
-int proxy_proto;     /* PROXY protocol server */
-int send_proxy;      /* PROXY protocol client */
-int quic_probe;      /* QUIC probing */
-FILE* hex_fp;        /* Hex dump file pointer */
-char* hex_path;      /* Hex dump file path */
-char* bpf_prog_path; /* BPF program path */
-int Nflag;           /* shutdown() network socket */
-int nflag;           /* Don't do name look up */
-char* Pflag;         /* Proxy username */
-char* pflag;         /* Localport flag */
-int rflag;           /* Random ports flag */
-char* sflag;         /* Source Address */
-char* iface;         /* Interface to bind to */
-int transparent;     /* IP_TRANSPARENT */
-int uflag;           /* UDP - Default to TCP */
-int vflag;           /* Verbosity */
-int xflag;           /* Socks proxy */
-int zflag;           /* Port Scan Flag */
-int Dflag;           /* sodebug */
-int Iflag;           /* TCP receive buffer size */
-int Oflag;           /* TCP send buffer size */
-int Tflag = -1;      /* IP Type of Service */
+int dflag;              /* detached, no stdin */
+int Fflag;              /* fdpass sock to stdout */
+unsigned int iflag;     /* Interval Flag */
+int keepopen;           /* More than one connect (formerly -k) */
+int lflag;              /* Bind to local port */
+int jflag;              /* JSON output */
+char* pcapfile;         /* PCAP file path */
+int proxy_proto;        /* PROXY protocol server */
+int send_proxy;         /* PROXY protocol client */
+int quic_probe;         /* QUIC probing */
+FILE* hex_fp;           /* Hex dump file pointer */
+char* hex_path;         /* Hex dump file path */
+char* bpf_prog_path;    /* BPF program path */
+char* bpf_evasion_path; /* BPF evasion program path */
+int Nflag;              /* shutdown() network socket */
+int nflag;              /* Don't do name look up */
+char* Pflag;            /* Proxy username */
+char* pflag;            /* Localport flag */
+int rflag;              /* Random ports flag */
+char* sflag;            /* Source Address */
+char* iface;            /* Interface to bind to */
+int transparent;        /* IP_TRANSPARENT */
+int uflag;              /* UDP - Default to TCP */
+int vflag;              /* Verbosity */
+int xflag;              /* Socks proxy */
+int zflag;              /* Port Scan Flag */
+int Dflag;              /* sodebug */
+int Iflag;              /* TCP receive buffer size */
+int Oflag;              /* TCP send buffer size */
+int Tflag = -1;         /* IP Type of Service */
 int rtableid = -1;
 
 int fuzz_tcp; /* Fuzz TCP with random data */
@@ -162,6 +163,7 @@ int main(int argc, char* argv[]) {
                                            {"keep-open", no_argument, NULL, 1017},
                                            {"interface", required_argument, NULL, 1018},
                                            {"transparent", no_argument, NULL, 1019},
+                                           {"bpf-evasion", required_argument, NULL, 1020},
 #ifdef GAPING_SECURITY_HOLE
                                            {"exec", required_argument, NULL, 'e'},
 #endif
@@ -244,6 +246,11 @@ int main(int argc, char* argv[]) {
                 break;
             case 1019:
                 transparent = 1;
+                break;
+            case 1020:
+                bpf_evasion_path = optarg;
+                if (load_bpf_tracepoint(bpf_evasion_path) == -1)
+                    errx(1, "bpf evasion load failed");
                 break;
             case '4':
                 family = AF_INET;

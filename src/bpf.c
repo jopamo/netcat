@@ -77,10 +77,60 @@ int attach_bpf_prog(int s, const char* prog_path) {
     return 0;
 }
 
+int load_bpf_tracepoint(const char* prog_path) {
+    struct bpf_object* obj;
+    struct bpf_link* link;
+    struct bpf_program* prog;
+    int err;
+
+    /* Load the BPF object file */
+    obj = bpf_object__open_file(prog_path, NULL);
+    if (libbpf_get_error(obj)) {
+        warnx("bpf_object__open_file failed: %s", prog_path);
+        return -1;
+    }
+
+    /* Load the programs */
+    err = bpf_object__load(obj);
+    if (err) {
+        warnx("bpf_object__load failed: %s", strerror(-err));
+        bpf_object__close(obj);
+        return -1;
+    }
+
+    /* Iterate over all programs and attach them */
+    bpf_object__for_each_program(prog, obj) {
+        link = bpf_program__attach(prog);
+        if (libbpf_get_error(link)) {
+            warnx("bpf_program__attach failed");
+            link = NULL;
+            /* Don't return -1 immediately, try other programs or just warn? */
+            /* Usually strictly failing is better for this tool */
+            bpf_object__close(obj);
+            return -1;
+        }
+    }
+
+    /* Keep the object loaded.
+       For tracepoints via bpf_link, we need to keep the link and object alive.
+       Since netcat is a long-running process (potentially), we just leak the reference
+       or store it globally if we wanted to detach on exit.
+       For now, we let it persist until process exit.
+    */
+
+    return 0;
+}
+
 #else
 
 int attach_bpf_prog(int s, const char* prog_path) {
     (void)s;
+    (void)prog_path;
+    warnx("eBPF support not compiled in (missing libbpf)");
+    return -1;
+}
+
+int load_bpf_tracepoint(const char* prog_path) {
     (void)prog_path;
     warnx("eBPF support not compiled in (missing libbpf)");
     return -1;
