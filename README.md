@@ -6,18 +6,9 @@
 
 Netcat is a simple Unix utility which reads and writes data across network connections, using TCP, UDP, MPTCP, VSOCK, or QUIC protocols. It is designed to be a reliable "back-end" tool that can be used directly or easily driven by other programs and scripts, now leveraging modern Linux kernel features like io_uring and zero-copy splicing for high-performance throughput. At the same time, it is a feature-rich network debugging and exploration tool, since it can create almost any kind of connection you would need—from standard sockets to container namespaces and secure enclaves—and has several interesting built-in capabilities. Netcat, or "nc" as the actual program is named, should have been supplied long ago as another one of those cryptic but standard Unix tools; this version ensures it survives the next thirty years of protocol evolution.
 
-        /\_/\
-       / 0 0 \
-      ====v====
-       \  W  /
-       |     |     _
-       / ___ \    /
-      / /   \ \  |
-     (((-----)))-'
-      /
-     (      ___
-      \__.=|___E
-             /
+<p align="center">
+  <img src="assets/netcat.jpg" alt="nc logo">
+</p>
 
 ## Table of Contents
 
