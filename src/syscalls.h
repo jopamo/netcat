@@ -278,13 +278,7 @@ static inline int direct_connect(int sockfd, const struct sockaddr* addr, sockle
 
 #else
 
-/* Fallback for non-Linux/x86_64 platforms */
-#define direct_write write
-#define direct_read read
-#define direct_socket socket
-#define direct_bind bind
-#define direct_listen listen
-#define direct_connect connect
+#error "Direct system calls not implemented for this architecture. Only Linux x86_64 and ARM64 are supported."
 
 #endif
 
