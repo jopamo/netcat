@@ -34,6 +34,9 @@
 
 #include "netcat.h"
 #include <getopt.h>
+#include <sched.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 /* Command Line Options */
 int dflag;          /* detached, no stdin */
@@ -59,7 +62,20 @@ int Tflag = -1;     /* IP Type of Service */
 int rtableid = -1;
 
 int fuzz_tcp; /* Fuzz TCP with random data */
+
 int fuzz_udp; /* Fuzz UDP with random data */
+
+int tfoflag; /* TCP Fast Open */
+
+int mptcpflag; /* Multipath TCP */
+
+int spliceflag; /* Zero-copy splice */
+
+char* netns; /* Network namespace path */
+
+int sockmark = -1; /* SO_MARK */
+
+int sockpriority = -1; /* SO_PRIORITY */
 
 int usetls;           /* use TLS */
 const char* Cflag;    /* Public cert file */
@@ -82,6 +98,9 @@ char* portlist[PORT_MAX + 1];
 char* unix_dg_tmp_socket;
 int ttl = -1;
 int minttl = -1;
+
+char* vsock_cid;
+char* vsock_port;
 
 int main(int argc, char* argv[]) {
     int ch, s = -1, ret, socksv;
@@ -125,11 +144,35 @@ int main(int argc, char* argv[]) {
     while ((ch = getopt_long(argc, argv, "46C:cDde:FH:hI:i:jK:klM:m:NnO:o:P:p:R:rs:T:UuV:vW:w:X:x:Z:z", long_options,
                              &option_index)) != -1) {
         switch (ch) {
+            case 1001:
+                mptcpflag = 1;
+                break;
+            case 1002:
+                tfoflag = 1;
+                break;
+            case 1003:
+                sockmark = strtonum(optarg, 0, INT_MAX, &errstr);
+                if (errstr)
+                    errx(1, "mark is %s", errstr);
+                break;
+            case 1008:
+                if ((vsock_cid = strdup(optarg)) == NULL)
+                    err(1, NULL);
+                if ((vsock_port = strchr(vsock_cid, ':')) == NULL)
+                    errx(1, "vsock: expected CID:PORT");
+                *vsock_port++ = '\0';
+                break;
+            case 1009:
+                netns = optarg;
+                break;
             case 1011:
                 fuzz_tcp = 1;
                 break;
             case 1012:
                 fuzz_udp = 1;
+                break;
+            case 1013:
+                spliceflag = 1;
                 break;
             case '4':
                 family = AF_INET;
@@ -295,8 +338,31 @@ int main(int argc, char* argv[]) {
         if (setrtable(rtableid) == -1)
             err(1, "setrtable");
 
+    if (netns) {
+#ifdef CLONE_NEWNET
+        int fd;
+        if ((fd = open(netns, O_RDONLY)) == -1)
+            err(1, "open namespace %s", netns);
+        if (setns(fd, CLONE_NEWNET) == -1)
+            err(1, "setns %s", netns);
+        close(fd);
+#else
+        errx(1, "Namespaces not supported on this platform");
+#endif
+    }
+
+    if (vsock_cid) {
+        if (family != AF_UNSPEC)
+            errx(1, "cannot use -4, -6 or -U with --vsock");
+        family = AF_VSOCK;
+    }
+
     /* Cruft to make sure options are clean, and used properly. */
-    if (argc == 1 && family == AF_UNIX) {
+    if (family == AF_VSOCK) {
+        if (argc != 0)
+            usage(1);
+    }
+    else if (argc == 1 && family == AF_UNIX) {
         host = argv[0];
     }
     else if (argc == 1 && lflag) {
@@ -325,6 +391,11 @@ int main(int argc, char* argv[]) {
          * to the client socket.  As the client path is determined
          * during runtime, we cannot unveil(2).
          */
+    }
+    else if (family == AF_VSOCK) {
+        /* no filesystem visibility */
+        if (unveil("/", "") == -1)
+            err(1, "unveil /");
     }
     else {
         if (family == AF_UNIX) {
@@ -389,6 +460,8 @@ int main(int argc, char* argv[]) {
         errx(1, "must use -l with -k");
     if (uflag && usetls)
         errx(1, "cannot use -c and -u");
+    if (spliceflag && (usetls || uflag || zflag || Fflag))
+        errx(1, "cannot use --splice with TLS, UDP, port scanning or FD passing");
     if ((family == AF_UNIX) && usetls)
         errx(1, "cannot use -c and -U");
     if ((family == AF_UNIX) && Fflag)
@@ -527,6 +600,9 @@ int main(int argc, char* argv[]) {
             else
                 s = unix_listen(host);
         }
+        else if (family == AF_VSOCK) {
+            s = vsock_listen(vsock_cid, vsock_port);
+        }
 
         if (usetls) {
             tls_config_verify_client_optional(tls_cfg);
@@ -537,7 +613,7 @@ int main(int argc, char* argv[]) {
         }
         /* Allow only one connection at a time, but stay alive. */
         for (;;) {
-            if (family != AF_UNIX) {
+            if (family != AF_UNIX && family != AF_VSOCK) {
                 if (s != -1)
                     close(s);
                 s = local_listen(host, uport, hints);
@@ -626,6 +702,20 @@ int main(int argc, char* argv[]) {
 
         if (uflag)
             unlink(unix_dg_tmp_socket);
+        return ret;
+    }
+    else if (family == AF_VSOCK) {
+        ret = 0;
+
+        if ((s = vsock_connect(vsock_cid, vsock_port)) > 0) {
+            if (!zflag)
+                readwrite(s, NULL);
+            close(s);
+        }
+        else {
+            warn("vsock %s:%s", vsock_cid, vsock_port);
+            ret = 1;
+        }
         return ret;
     }
     else {

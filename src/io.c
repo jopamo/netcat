@@ -1,4 +1,72 @@
 #include "netcat.h"
+#include <fcntl.h>
+
+void splice_loop(int net_fd) {
+    int p_in[2], p_out[2];
+    struct pollfd pfd[4];
+    int stdin_fd = STDIN_FILENO;
+    int stdout_fd = STDOUT_FILENO;
+    int n, num_fds;
+
+    if (pipe(p_in) == -1 || pipe(p_out) == -1)
+        err(1, "pipe");
+
+    if (dflag)
+        stdin_fd = -1;
+
+    pfd[POLL_STDIN].fd = stdin_fd;
+    pfd[POLL_STDIN].events = POLLIN;
+    pfd[POLL_NETOUT].fd = net_fd;
+    pfd[POLL_NETOUT].events = 0;
+    pfd[POLL_NETIN].fd = net_fd;
+    pfd[POLL_NETIN].events = POLLIN;
+    pfd[POLL_STDOUT].fd = stdout_fd;
+    pfd[POLL_STDOUT].events = 0;
+
+    while (1) {
+        if (pfd[POLL_STDIN].fd == -1 && pfd[POLL_NETIN].fd == -1)
+            return;
+        if (pfd[POLL_NETOUT].fd == -1 && pfd[POLL_STDOUT].fd == -1)
+            return;
+
+        num_fds = poll(pfd, 4, timeout);
+        if (num_fds == -1)
+            err(1, "poll");
+        if (num_fds == 0)
+            return;
+
+        for (n = 0; n < 4; n++) {
+            if (pfd[n].revents & (POLLERR | POLLNVAL))
+                pfd[n].fd = -1;
+        }
+
+        if (pfd[POLL_STDIN].revents & POLLIN) {
+            ssize_t s = splice(pfd[POLL_STDIN].fd, NULL, p_in[1], NULL, BUFSIZE, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+            if (s > 0) {
+                if (splice(p_in[0], NULL, pfd[POLL_NETOUT].fd, NULL, s, SPLICE_F_MOVE) == -1)
+                    pfd[POLL_NETOUT].fd = -1;
+            }
+            else if (s == 0) {
+                pfd[POLL_STDIN].fd = -1;
+                if (Nflag)
+                    shutdown(pfd[POLL_NETOUT].fd, SHUT_WR);
+                pfd[POLL_NETOUT].fd = -1;
+            }
+        }
+
+        if (pfd[POLL_NETIN].revents & POLLIN) {
+            ssize_t s = splice(pfd[POLL_NETIN].fd, NULL, p_out[1], NULL, BUFSIZE, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+            if (s > 0) {
+                if (splice(p_out[0], NULL, pfd[POLL_STDOUT].fd, NULL, s, SPLICE_F_MOVE) == -1)
+                    pfd[POLL_STDOUT].fd = -1;
+            }
+            else if (s == 0) {
+                pfd[POLL_NETIN].fd = -1;
+                pfd[POLL_STDOUT].fd = -1;
+            }
+        }
+    }
+}
 
 /*
  * readwrite()
@@ -14,6 +82,11 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
     size_t stdinbufpos = 0;
     int n, num_fds;
     ssize_t ret;
+
+    if (spliceflag && !tls_ctx) {
+        splice_loop(net_fd);
+        return;
+    }
 
     /* don't read from stdin if requested or fuzzing */
     if (dflag || fuzz_tcp || fuzz_udp)

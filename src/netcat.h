@@ -27,6 +27,10 @@
 #include "atomicio.h"
 #include "openbsd_compat.h"
 
+#ifndef AF_VSOCK
+#define AF_VSOCK 40
+#endif
+
 #define PORT_MAX 65535
 #define UNIX_DG_TMP_SOCKET_SIZE 19
 
@@ -51,6 +55,11 @@ extern int jflag;          /* JSON output */
 extern int Nflag;          /* shutdown() network socket */
 extern int fuzz_tcp;       /* Fuzz TCP with random data */
 extern int fuzz_udp;       /* Fuzz UDP with random data */
+extern int tfoflag;        /* TCP Fast Open */
+extern int mptcpflag;      /* Multipath TCP */
+extern int spliceflag;     /* Zero-copy splice */
+extern int sockmark;       /* SO_MARK */
+extern int sockpriority;   /* SO_PRIORITY */
 extern int nflag;          /* Don't do name look up */
 extern char* Pflag;        /* Proxy username */
 extern char* pflag;        /* Localport flag */
@@ -88,6 +97,9 @@ extern char* unix_dg_tmp_socket;
 extern int ttl;
 extern int minttl;
 
+extern char* vsock_cid;
+extern char* vsock_port;
+
 int strtoport(char* portstr, int udp);
 void build_ports(char*);
 void help(void) __attribute__((noreturn));
@@ -110,6 +122,8 @@ void connection_info(const char*, const char*, const char*, const char*);
 int unix_bind(char*, int);
 int unix_connect(char*);
 int unix_listen(char*);
+int vsock_listen(const char*, const char*);
+int vsock_connect(const char*, const char*);
 void set_common_sockopts(int, int);
 int process_tos_opt(char*, int*);
 int process_tls_opt(char*, int*);

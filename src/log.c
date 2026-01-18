@@ -1,4 +1,7 @@
 #include "netcat.h"
+#ifdef __linux__
+#include <linux/vm_sockets.h>
+#endif
 
 void report_sock(const char* msg, const struct sockaddr* sa, socklen_t salen, char* path) {
     char host[NI_MAXHOST], port[NI_MAXSERV];
@@ -27,6 +30,20 @@ void report_sock(const char* msg, const struct sockaddr* sa, socklen_t salen, ch
 
     if (nflag)
         flags |= NI_NUMERICHOST;
+
+#ifdef __linux__
+    if (sa && sa->sa_family == AF_VSOCK) {
+        struct sockaddr_vm* svm = (struct sockaddr_vm*)sa;
+        if (jflag) {
+            fprintf(stderr, "{\"timestamp\":\"%s\",\"level\":\"info\",\"event\":\"%s\",\"cid\":%u,\"port\":%u}\n", tbuf,
+                    msg, svm->svm_cid, svm->svm_port);
+        }
+        else {
+            fprintf(stderr, "%s on vsock:%u:%u\n", msg, svm->svm_cid, svm->svm_port);
+        }
+        return;
+    }
+#endif
 
     herr = getnameinfo(sa, salen, host, sizeof(host), port, sizeof(port), flags);
     switch (herr) {

@@ -1,6 +1,109 @@
 #include "netcat.h"
 #include <stddef.h>
 
+#ifdef __linux__
+#include <linux/vm_sockets.h>
+#endif
+
+#ifndef AF_VSOCK
+#define AF_VSOCK 40
+#endif
+
+#ifndef VMADDR_CID_ANY
+#define VMADDR_CID_ANY -1U
+#endif
+
+#ifndef VMADDR_CID_LOCAL
+#define VMADDR_CID_LOCAL 1
+#endif
+
+#ifndef VMADDR_PORT_ANY
+#define VMADDR_PORT_ANY -1U
+#endif
+
+#ifndef __linux__
+#ifndef HAVE_SOCKADDR_VM
+struct sockaddr_vm {
+    unsigned short svm_family;
+    unsigned short svm_reserved1;
+    unsigned int svm_port;
+    unsigned int svm_cid;
+    unsigned char svm_zero[sizeof(struct sockaddr) - sizeof(unsigned short) - sizeof(unsigned short) -
+                           sizeof(unsigned int) - sizeof(unsigned int)];
+};
+#endif
+#endif
+
+int vsock_listen(const char* cid_str, const char* port_str) {
+    struct sockaddr_vm svm;
+    int s;
+    const char* errstr;
+
+    memset(&svm, 0, sizeof(svm));
+    svm.svm_family = AF_VSOCK;
+
+    if (cid_str == NULL || strcmp(cid_str, "any") == 0)
+        svm.svm_cid = VMADDR_CID_ANY;
+    else
+        svm.svm_cid = (unsigned int)strtonum(cid_str, 0, UINT_MAX, &errstr);
+
+    if (port_str == NULL)
+        svm.svm_port = VMADDR_PORT_ANY;
+    else
+        svm.svm_port = (unsigned int)strtonum(port_str, 0, UINT_MAX, &errstr);
+
+    if ((s = socket(AF_VSOCK, SOCK_STREAM, 0)) == -1)
+        return -1;
+
+    set_common_sockopts(s, AF_VSOCK);
+
+    if (bind(s, (struct sockaddr*)&svm, sizeof(svm)) == -1) {
+        close(s);
+        return -1;
+    }
+
+    if (listen(s, 5) == -1) {
+        close(s);
+        return -1;
+    }
+
+    if (vflag) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "vsock:%u:%u", svm.svm_cid, svm.svm_port);
+        report_sock("Listening", NULL, 0, buf);
+    }
+
+    return s;
+}
+
+int vsock_connect(const char* cid_str, const char* port_str) {
+    struct sockaddr_vm svm;
+    int s;
+    const char* errstr;
+
+    memset(&svm, 0, sizeof(svm));
+    svm.svm_family = AF_VSOCK;
+
+    if (strcmp(cid_str, "local") == 0)
+        svm.svm_cid = VMADDR_CID_LOCAL;
+    else
+        svm.svm_cid = (unsigned int)strtonum(cid_str, 0, UINT_MAX, &errstr);
+
+    svm.svm_port = (unsigned int)strtonum(port_str, 0, UINT_MAX, &errstr);
+
+    if ((s = socket(AF_VSOCK, SOCK_STREAM, 0)) == -1)
+        return -1;
+
+    set_common_sockopts(s, AF_VSOCK);
+
+    if (connect(s, (struct sockaddr*)&svm, sizeof(svm)) == -1) {
+        close(s);
+        return -1;
+    }
+
+    return s;
+}
+
 /*
  * unix_bind()
  * Returns a unix socket bound to the given path
@@ -127,7 +230,12 @@ int remote_connect(const char* host, const char* port, struct addrinfo hints, ch
         errx(1, "getaddrinfo for host \"%s\" port %s: %s", host, port, gai_strerror(error));
 
     for (res = res0; res; res = res->ai_next) {
-        if ((s = socket(res->ai_family, res->ai_socktype | SOCK_NONBLOCK, res->ai_protocol)) == -1)
+        int proto = res->ai_protocol;
+#ifdef IPPROTO_MPTCP
+        if (mptcpflag && res->ai_protocol == IPPROTO_TCP)
+            proto = IPPROTO_MPTCP;
+#endif
+        if ((s = socket(res->ai_family, res->ai_socktype | SOCK_NONBLOCK, proto)) == -1)
             continue;
 
         /* Bind to a local port or source address if specified. */
@@ -236,7 +344,12 @@ int local_listen(const char* host, const char* port, struct addrinfo hints) {
         errx(1, "getaddrinfo: %s", gai_strerror(error));
 
     for (res = res0; res; res = res->ai_next) {
-        if ((s = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1)
+        int proto = res->ai_protocol;
+#ifdef IPPROTO_MPTCP
+        if (mptcpflag && res->ai_protocol == IPPROTO_TCP)
+            proto = IPPROTO_MPTCP;
+#endif
+        if ((s = socket(res->ai_family, res->ai_socktype, proto)) == -1)
             continue;
 
         ret = setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &x, sizeof(x));
@@ -375,6 +488,36 @@ void set_common_sockopts(int s, int af) {
 
         else if (af == AF_INET6 && setsockopt(s, IPPROTO_IPV6, IPV6_MINHOPCOUNT, &minttl, sizeof(minttl)))
             err(1, "set IPv6 min hop count");
+    }
+
+#ifdef SO_MARK
+    if (sockmark != -1) {
+        if (setsockopt(s, SOL_SOCKET, SO_MARK, &sockmark, sizeof(sockmark)) == -1)
+            err(1, "set SO_MARK");
+    }
+#endif
+
+#ifdef SO_PRIORITY
+    if (sockpriority != -1) {
+        if (setsockopt(s, SOL_SOCKET, SO_PRIORITY, &sockpriority, sizeof(sockpriority)) == -1)
+            err(1, "set SO_PRIORITY");
+    }
+#endif
+
+    if (tfoflag) {
+#ifdef TCP_FASTOPEN_CONNECT
+        if (!lflag) {
+            if (setsockopt(s, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &x, sizeof(x)) == -1)
+                err(1, "set TCP_FASTOPEN_CONNECT");
+        }
+#endif
+#ifdef TCP_FASTOPEN
+        if (lflag) {
+            int qlen = 5;
+            if (setsockopt(s, IPPROTO_TCP, TCP_FASTOPEN, &qlen, sizeof(qlen)) == -1)
+                err(1, "set TCP_FASTOPEN");
+        }
+#endif
     }
 }
 
