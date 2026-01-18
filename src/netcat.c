@@ -53,7 +53,6 @@ int zflag;          /* Port Scan Flag */
 int Dflag;          /* sodebug */
 int Iflag;          /* TCP receive buffer size */
 int Oflag;          /* TCP send buffer size */
-int Sflag;          /* TCP MD5 signature option */
 int Tflag = -1;     /* IP Type of Service */
 int rtableid = -1;
 
@@ -102,7 +101,7 @@ int main(int argc, char* argv[]) {
 
     signal(SIGPIPE, SIG_IGN);
 
-    while ((ch = getopt(argc, argv, "46C:cDde:FH:hI:i:K:klM:m:NnO:o:P:p:R:rSs:T:UuV:vW:w:X:x:Z:z")) != -1) {
+    while ((ch = getopt(argc, argv, "46C:cDde:FH:hI:i:K:klM:m:NnO:o:P:p:R:r:T:UuV:vW:w:X:x:Z:z")) != -1) {
         switch (ch) {
             case '4':
                 family = AF_INET;
@@ -239,9 +238,6 @@ int main(int argc, char* argv[]) {
                 break;
             case 'o':
                 oflag = optarg;
-                break;
-            case 'S':
-                Sflag = 1;
                 break;
             case 'T':
                 errstr = NULL;

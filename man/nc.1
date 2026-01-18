@@ -33,7 +33,7 @@
 .Nd arbitrary TCP and UDP connections and listens
 .Sh SYNOPSIS
 .Nm
-.Op Fl 46cDdFhklNnrSUuvz
+.Op Fl 46cDdFhklNnruUuvz
 .Op Fl C Ar certfile
 .Op Fl e Ar name
 .Op Fl H Ar hash
@@ -226,8 +226,6 @@ Requires
 Choose source and/or destination ports randomly
 instead of sequentially within a range or in the order that the system
 assigns them.
-.It Fl S
-Enable the RFC 2385 TCP MD5 signature option.
 .It Fl s Ar sourceaddr
 Set the source address to send packets from,
 which is useful on machines with multiple interfaces.

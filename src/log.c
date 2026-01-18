@@ -39,8 +39,8 @@ void help(void) {
         "minttl\tMinimum incoming TTL / Hop Limit\n\t-N\t\tShutdown the network socket after EOF on "
         "stdin\n\t-n\t\tSuppress name/port resolutions\n\t-O length\tTCP send buffer length\n\t-o staplefile\tStaple "
         "file\n\t-P proxyuser\tUsername for proxy authentication\n\t-p port\t\tSpecify local port for remote "
-        "connects\n\t-R CAfile\tCA bundle\n\t-r\t\tRandomize remote ports\n\t-S\t\tEnable the TCP MD5 signature "
-        "option\n\t-s sourceaddr\tLocal source address\n\t-T keyword\tTOS value or TLS options\n\t-U\t\tUse UNIX "
+        "connects\n\t-R CAfile\tCA bundle\n\t-r\t\tRandomize remote ports\n\t-s sourceaddr\tLocal source "
+        "address\n\t-T keyword\tTOS value or TLS options\n\t-U\t\tUse UNIX "
         "domain socket\n\t-u\t\tUDP mode\n\t-V rtable\tSpecify alternate routing table\n\t-v\t\tVerbose\n\t-W "
         "recvlimit\tTerminate after receiving a number of packets\n\t-w timeout\tTimeout for connects and final net "
         "reads\n\t-X proto\tProxy protocol: \"5\" (SOCKS) or \"connect\"\n\t-x addr[:port]\tSpecify "
@@ -51,7 +51,7 @@ void help(void) {
 
 void usage(int ret) {
     fprintf(stderr,
-            "usage: nc [-46cDdFhklNnrSUuvz] [-C certfile] [-e name] "
+            "usage: nc [-46cDdFhklNnruUvz] [-C certfile] [-e name] "
             "[-H hash] [-I length]\n"
             "\t  [-i interval] [-K keyfile] [-M ttl] [-m minttl] [-O length]\n"
             "\t  [-o staplefile] [-P proxy_username] [-p source_port] "

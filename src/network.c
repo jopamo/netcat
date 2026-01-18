@@ -297,10 +297,6 @@ void connection_info(const char* host, const char* port, const char* proto, cons
 void set_common_sockopts(int s, int af) {
     int x = 1;
 
-    if (Sflag) {
-        if (setsockopt(s, IPPROTO_TCP, TCP_MD5SIG, &x, sizeof(x)) == -1)
-            err(1, NULL);
-    }
     if (Dflag) {
         if (setsockopt(s, SOL_SOCKET, SO_DEBUG, &x, sizeof(x)) == -1)
             err(1, NULL);

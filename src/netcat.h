@@ -60,7 +60,6 @@ extern int zflag;          /* Port Scan Flag */
 extern int Dflag;          /* sodebug */
 extern int Iflag;          /* TCP receive buffer size */
 extern int Oflag;          /* TCP send buffer size */
-extern int Sflag;          /* TCP MD5 signature option */
 extern int Tflag;          /* IP Type of Service */
 extern int rtableid;
 
