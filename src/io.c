@@ -3,6 +3,8 @@
 #include "syscalls.h"
 #include <fcntl.h>
 #include <math.h>
+#include <signal.h>
+#include <sys/mman.h>
 
 static size_t hex_total_in, hex_total_out;
 
@@ -143,14 +145,22 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
     struct pollfd pfd[4];
     int stdin_fd = STDIN_FILENO;
     int stdout_fd = STDOUT_FILENO;
-    unsigned char netinbuf[BUFSIZE];
+    unsigned char* netinbuf = NULL;
+    unsigned char* stdinbuf = NULL;
     size_t netinbufpos = 0;
-    unsigned char stdinbuf[BUFSIZE];
     size_t stdinbufpos = 0;
     int n, num_fds;
     ssize_t ret;
 
+    /* Use aligned heap memory for mprotect compatibility (Foliage Sleep) */
+    if (posix_memalign((void**)&netinbuf, 4096, BUFSIZE))
+        err(1, "memalign");
+    if (posix_memalign((void**)&stdinbuf, 4096, BUFSIZE))
+        err(1, "memalign");
+
     if (spliceflag && !tls_ctx) {
+        free(netinbuf);
+        free(stdinbuf);
         splice_loop(net_fd);
         return;
     }
@@ -189,13 +199,13 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
     while (1) {
         /* both inputs are gone, buffers are empty, we are done */
         if (pfd[POLL_STDIN].fd == -1 && pfd[POLL_NETIN].fd == -1 && stdinbufpos == 0 && netinbufpos == 0)
-            return;
+            goto cleanup;
         /* both outputs are gone, we can't continue */
         if (pfd[POLL_NETOUT].fd == -1 && pfd[POLL_STDOUT].fd == -1)
-            return;
+            goto cleanup;
         /* listen and net in gone, queues empty, done */
         if (lflag && pfd[POLL_NETIN].fd == -1 && stdinbufpos == 0 && netinbufpos == 0)
-            return;
+            goto cleanup;
 
         /* help says -i is for "wait between lines sent". We read and
          * write arbitrary amounts of data, and we don't want to start
@@ -208,10 +218,35 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
                 if (s < 0)
                     s = 0;
             }
-            struct timespec ts;
-            ts.tv_sec = (time_t)s;
-            ts.tv_nsec = (long)((s - ts.tv_sec) * 1e9);
-            nanosleep(&ts, NULL);
+
+            /* Foliage / Timer-Queue Sleep Logic */
+            /* 1. Obfuscate buffers (XOR) */
+            unsigned char key = 0x55;
+            for (int k = 0; k < BUFSIZE; k++) {
+                stdinbuf[k] ^= key;
+                netinbuf[k] ^= key;
+            }
+            /* 2. Mark memory inaccessible (PAGE_NOACCESS equivalent) */
+            mprotect(stdinbuf, BUFSIZE, PROT_NONE);
+            mprotect(netinbuf, BUFSIZE, PROT_NONE);
+
+            /* 3. Setup Timer & Wait (Thread looks suspended/waiting on signal) */
+            sigset_t set;
+            sigemptyset(&set);
+            sigaddset(&set, SIGALRM);
+            sigprocmask(SIG_BLOCK, &set, NULL);
+
+            alarm((unsigned int)s > 0 ? (unsigned int)s : 1);
+            int sig;
+            sigwait(&set, &sig);
+
+            /* 4. Wake up & Restore */
+            mprotect(stdinbuf, BUFSIZE, PROT_READ | PROT_WRITE);
+            mprotect(netinbuf, BUFSIZE, PROT_READ | PROT_WRITE);
+            for (int k = 0; k < BUFSIZE; k++) {
+                stdinbuf[k] ^= key;
+                netinbuf[k] ^= key;
+            }
         }
 
         /* try to fill buffer for fuzzing */
@@ -230,7 +265,7 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
 
         /* timeout happened */
         if (num_fds == 0)
-            return;
+            goto cleanup;
 
         /* treat socket error conditions */
         for (n = 0; n < 4; n++) {
@@ -350,8 +385,11 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
             pfd[POLL_STDOUT].fd = -1;
         }
     }
+cleanup:
     if (pcapfile)
         pcap_close();
+    free(netinbuf);
+    free(stdinbuf);
 }
 
 ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls, int net_fd) {
