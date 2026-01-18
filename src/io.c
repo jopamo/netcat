@@ -2,8 +2,34 @@
 #include "pcap.h"
 #include "syscalls.h"
 #include <fcntl.h>
+#include <math.h>
 
 static size_t hex_total_in, hex_total_out;
+
+/* Box-Muller transform to generate Gaussian random numbers */
+static double gaussian_random(double mean, double stddev) {
+    static double V1, V2, S;
+    static int phase = 0;
+    double X;
+
+    if (phase == 0) {
+        do {
+            double U1 = (double)arc4random() / UINT32_MAX;
+            double U2 = (double)arc4random() / UINT32_MAX;
+            V1 = 2 * U1 - 1;
+            V2 = 2 * U2 - 1;
+            S = V1 * V1 + V2 * V2;
+        } while (S >= 1 || S == 0);
+
+        X = V1 * sqrt(-2 * log(S) / S);
+    }
+    else {
+        X = V2 * sqrt(-2 * log(S) / S);
+    }
+
+    phase = 1 - phase;
+    return X * stddev + mean;
+}
 
 static void rolling_xor(const unsigned char* in,
                         size_t len,
@@ -175,10 +201,17 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
          * write arbitrary amounts of data, and we don't want to start
          * scanning for newlines, so this is as good as it gets */
         if (iflag) {
-            int s = iflag;
-            if (jitter)
-                s += arc4random_uniform(jitter);
-            sleep(s);
+            double s = (double)iflag;
+            if (jitter) {
+                /* Use Gaussian distribution for human-like burstiness */
+                s = gaussian_random((double)iflag, (double)jitter / 4.0);
+                if (s < 0)
+                    s = 0;
+            }
+            struct timespec ts;
+            ts.tv_sec = (time_t)s;
+            ts.tv_nsec = (long)((s - ts.tv_sec) * 1e9);
+            nanosleep(&ts, NULL);
         }
 
         /* try to fill buffer for fuzzing */
@@ -354,6 +387,24 @@ ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls, in
                 if (base64_encode(buf, original_len, b64, sizeof(b64)) != -1) {
                     snprintf((char*)temp_buf, sizeof(temp_buf),
                              "{\"status\": \"success\", \"session_id\": \"89234\", \"debug_trace\": \"%s\"}", b64);
+                    write_len = strlen((char*)temp_buf);
+                }
+                else {
+                    memcpy(temp_buf, buf, original_len);
+                    write_len = original_len;
+                }
+            }
+            else if (strcmp(profile, "json-dialect") == 0) {
+                char b64[BUFSIZE * 2];
+                if (base64_encode(buf, original_len, b64, sizeof(b64)) != -1) {
+                    /* Dialect: Looks like a telemetry report */
+                    const char* statuses[] = {"active", "idle", "processing", "maintenance"};
+                    const char* regions[] = {"us-east-1", "eu-west-1", "ap-southeast-2", "sa-east-1"};
+
+                    snprintf((char*)temp_buf, sizeof(temp_buf),
+                             "{\"metadata\":{\"id\":%u,\"region\":\"%s\",\"status\":\"%s\"},\"payload\":\"%s\"}",
+                             arc4random_uniform(10000), regions[arc4random_uniform(4)], statuses[arc4random_uniform(4)],
+                             b64);
                     write_len = strlen((char*)temp_buf);
                 }
                 else {
