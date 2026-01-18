@@ -1,4 +1,5 @@
 #include "netcat.h"
+#include <stddef.h>
 
 /*
  * unix_bind()
@@ -7,6 +8,7 @@
 int unix_bind(char* path, int flags) {
     struct sockaddr_un s_un;
     int s, save_errno;
+    socklen_t len;
 
     /* Create unix domain socket. */
     if ((s = socket(AF_UNIX, flags | (uflag ? SOCK_DGRAM : SOCK_STREAM), 0)) == -1)
@@ -15,13 +17,25 @@ int unix_bind(char* path, int flags) {
     memset(&s_un, 0, sizeof(struct sockaddr_un));
     s_un.sun_family = AF_UNIX;
 
-    if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >= sizeof(s_un.sun_path)) {
-        close(s);
-        errno = ENAMETOOLONG;
-        return -1;
+    if (path[0] == '@') {
+        s_un.sun_path[0] = '\0';
+        if (strlcpy(&s_un.sun_path[1], &path[1], sizeof(s_un.sun_path) - 1) >= sizeof(s_un.sun_path) - 1) {
+            close(s);
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        len = offsetof(struct sockaddr_un, sun_path) + strlen(path);
+    }
+    else {
+        if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >= sizeof(s_un.sun_path)) {
+            close(s);
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        len = sizeof(s_un);
     }
 
-    if (bind(s, (struct sockaddr*)&s_un, sizeof(s_un)) == -1) {
+    if (bind(s, (struct sockaddr*)&s_un, len) == -1) {
         save_errno = errno;
         close(s);
         errno = save_errno;
@@ -40,6 +54,7 @@ int unix_bind(char* path, int flags) {
 int unix_connect(char* path) {
     struct sockaddr_un s_un;
     int s, save_errno;
+    socklen_t len;
 
     if (uflag) {
         if ((s = unix_bind(unix_dg_tmp_socket, SOCK_CLOEXEC)) == -1)
@@ -53,12 +68,25 @@ int unix_connect(char* path) {
     memset(&s_un, 0, sizeof(struct sockaddr_un));
     s_un.sun_family = AF_UNIX;
 
-    if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >= sizeof(s_un.sun_path)) {
-        close(s);
-        errno = ENAMETOOLONG;
-        return -1;
+    if (path[0] == '@') {
+        s_un.sun_path[0] = '\0';
+        if (strlcpy(&s_un.sun_path[1], &path[1], sizeof(s_un.sun_path) - 1) >= sizeof(s_un.sun_path) - 1) {
+            close(s);
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        len = offsetof(struct sockaddr_un, sun_path) + strlen(path);
     }
-    if (connect(s, (struct sockaddr*)&s_un, sizeof(s_un)) == -1) {
+    else {
+        if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >= sizeof(s_un.sun_path)) {
+            close(s);
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        len = sizeof(s_un);
+    }
+
+    if (connect(s, (struct sockaddr*)&s_un, len) == -1) {
         save_errno = errno;
         close(s);
         errno = save_errno;
@@ -282,16 +310,32 @@ void connection_info(const char* host, const char* port, const char* proto, cons
             service = sv->s_name;
     }
 
-    fprintf(stderr, "Connection to %s", host);
+    if (jflag) {
+        char tbuf[32];
+        time_t now;
+        struct tm* tm_info;
 
-    /*
-     * if we aren't connecting thru a proxy and
-     * there is something to report, print IP
-     */
-    if (!nflag && !xflag && strcmp(host, ipaddr) != 0)
-        fprintf(stderr, " (%s)", ipaddr);
+        time(&now);
+        tm_info = gmtime(&now);
+        strftime(tbuf, sizeof(tbuf), "%Y-%m-%dT%H:%M:%SZ", tm_info);
 
-    fprintf(stderr, " %s port [%s/%s] succeeded!\n", port, proto, service);
+        fprintf(stderr,
+                "{\"timestamp\":\"%s\",\"level\":\"info\",\"event\":\"connection_succeeded\",\"host\":\"%s\",\"ip\":\"%"
+                "s\",\"port\":\"%s\",\"proto\":\"%s\",\"service\":\"%s\"}\n",
+                tbuf, host, ipaddr, port, proto, service);
+    }
+    else {
+        fprintf(stderr, "Connection to %s", host);
+
+        /*
+         * if we aren't connecting thru a proxy and
+         * there is something to report, print IP
+         */
+        if (!nflag && !xflag && strcmp(host, ipaddr) != 0)
+            fprintf(stderr, " (%s)", ipaddr);
+
+        fprintf(stderr, " %s port [%s/%s] succeeded!\n", port, proto, service);
+    }
 }
 
 void set_common_sockopts(int s, int af) {

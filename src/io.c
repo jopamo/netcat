@@ -15,8 +15,8 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
     int n, num_fds;
     ssize_t ret;
 
-    /* don't read from stdin if requested */
-    if (dflag)
+    /* don't read from stdin if requested or fuzzing */
+    if (dflag || fuzz_tcp || fuzz_udp)
         stdin_fd = -1;
 
     /* stdin */
@@ -51,6 +51,13 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
          * scanning for newlines, so this is as good as it gets */
         if (iflag)
             sleep(iflag);
+
+        /* try to fill buffer for fuzzing */
+        if (((fuzz_tcp && !uflag) || (fuzz_udp && uflag)) && stdinbufpos < BUFSIZE) {
+            arc4random_buf(stdinbuf + stdinbufpos, BUFSIZE - stdinbufpos);
+            stdinbufpos = BUFSIZE;
+            pfd[POLL_NETOUT].events = POLLOUT;
+        }
 
         /* poll */
         num_fds = poll(pfd, 4, timeout);

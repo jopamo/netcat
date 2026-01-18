@@ -4,9 +4,24 @@ void report_sock(const char* msg, const struct sockaddr* sa, socklen_t salen, ch
     char host[NI_MAXHOST], port[NI_MAXSERV];
     int herr;
     int flags = NI_NUMERICSERV;
+    char tbuf[32];
+    time_t now;
+    struct tm* tm_info;
+
+    if (jflag) {
+        time(&now);
+        tm_info = gmtime(&now);
+        strftime(tbuf, sizeof(tbuf), "%Y-%m-%dT%H:%M:%SZ", tm_info);
+    }
 
     if (path != NULL) {
-        fprintf(stderr, "%s on %s\n", msg, path);
+        if (jflag) {
+            fprintf(stderr, "{\"timestamp\":\"%s\",\"level\":\"info\",\"event\":\"%s\",\"path\":\"%s\"}\n", tbuf, msg,
+                    path);
+        }
+        else {
+            fprintf(stderr, "%s on %s\n", msg, path);
+        }
         return;
     }
 
@@ -23,7 +38,13 @@ void report_sock(const char* msg, const struct sockaddr* sa, socklen_t salen, ch
             errx(1, "getnameinfo: %s", gai_strerror(herr));
     }
 
-    fprintf(stderr, "%s on %s %s\n", msg, host, port);
+    if (jflag) {
+        fprintf(stderr, "{\"timestamp\":\"%s\",\"level\":\"info\",\"event\":\"%s\",\"host\":\"%s\",\"port\":\"%s\"}\n",
+                tbuf, msg, host, port);
+    }
+    else {
+        fprintf(stderr, "%s on %s %s\n", msg, host, port);
+    }
 }
 
 void help(void) {

@@ -33,6 +33,7 @@
  */
 
 #include "netcat.h"
+#include <getopt.h>
 
 /* Command Line Options */
 int dflag;          /* detached, no stdin */
@@ -40,6 +41,7 @@ int Fflag;          /* fdpass sock to stdout */
 unsigned int iflag; /* Interval Flag */
 int kflag;          /* More than one connect */
 int lflag;          /* Bind to local port */
+int jflag;          /* JSON output */
 int Nflag;          /* shutdown() network socket */
 int nflag;          /* Don't do name look up */
 char* Pflag;        /* Proxy username */
@@ -55,6 +57,9 @@ int Iflag;          /* TCP receive buffer size */
 int Oflag;          /* TCP send buffer size */
 int Tflag = -1;     /* IP Type of Service */
 int rtableid = -1;
+
+int fuzz_tcp; /* Fuzz TCP with random data */
+int fuzz_udp; /* Fuzz UDP with random data */
 
 int usetls;           /* use TLS */
 const char* Cflag;    /* Public cert file */
@@ -92,6 +97,22 @@ int main(int argc, char* argv[]) {
     struct tls_config* tls_cfg = NULL;
     struct tls* tls_ctx = NULL;
     uint32_t protocols;
+    int option_index = 0;
+    static struct option long_options[] = {{"mptcp", no_argument, NULL, 1001},
+                                           {"tfo", no_argument, NULL, 1002},
+                                           {"mark", required_argument, NULL, 1003},
+                                           {"quic", no_argument, NULL, 1004},
+                                           {"dtls", no_argument, NULL, 1005},
+                                           {"proxy-proto", no_argument, NULL, 1006},
+                                           {"send-proxy", no_argument, NULL, 1007},
+                                           {"vsock", required_argument, NULL, 1008},
+                                           {"namespace", required_argument, NULL, 1009},
+                                           {"pcap", required_argument, NULL, 1010},
+                                           {"fuzz-tcp", no_argument, NULL, 1011},
+                                           {"fuzz-udp", no_argument, NULL, 1012},
+                                           {"splice", no_argument, NULL, 1013},
+                                           {"io-uring", no_argument, NULL, 1014},
+                                           {NULL, 0, NULL, 0}};
 
     ret = 1;
     socksv = 5;
@@ -101,13 +122,23 @@ int main(int argc, char* argv[]) {
 
     signal(SIGPIPE, SIG_IGN);
 
-    while ((ch = getopt(argc, argv, "46C:cDde:FH:hI:i:K:klM:m:NnO:o:P:p:R:r:T:UuV:vW:w:X:x:Z:z")) != -1) {
+    while ((ch = getopt_long(argc, argv, "46C:cDde:FH:hI:i:jK:klM:m:NnO:o:P:p:R:rs:T:UuV:vW:w:X:x:Z:z", long_options,
+                             &option_index)) != -1) {
         switch (ch) {
+            case 1011:
+                fuzz_tcp = 1;
+                break;
+            case 1012:
+                fuzz_udp = 1;
+                break;
             case '4':
                 family = AF_INET;
                 break;
             case '6':
                 family = AF_INET6;
+                break;
+            case 'j':
+                jflag = 1;
                 break;
             case 'U':
                 family = AF_UNIX;
@@ -297,12 +328,16 @@ int main(int argc, char* argv[]) {
     }
     else {
         if (family == AF_UNIX) {
-            if (unveil(host, "rwc") == -1)
-                err(1, "unveil %s", host);
+            if (host[0] != '@') {
+                if (unveil(host, "rwc") == -1)
+                    err(1, "unveil %s", host);
+            }
             if (uflag && !kflag) {
                 if (sflag) {
-                    if (unveil(sflag, "rwc") == -1)
-                        err(1, "unveil %s", sflag);
+                    if (sflag[0] != '@') {
+                        if (unveil(sflag, "rwc") == -1)
+                            err(1, "unveil %s", sflag);
+                    }
                 }
                 else {
                     if (unveil("/tmp", "rwc") == -1)

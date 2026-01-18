@@ -47,7 +47,10 @@ extern int Fflag;          /* fdpass sock to stdout */
 extern unsigned int iflag; /* Interval Flag */
 extern int kflag;          /* More than one connect */
 extern int lflag;          /* Bind to local port */
+extern int jflag;          /* JSON output */
 extern int Nflag;          /* shutdown() network socket */
+extern int fuzz_tcp;       /* Fuzz TCP with random data */
+extern int fuzz_udp;       /* Fuzz UDP with random data */
 extern int nflag;          /* Don't do name look up */
 extern char* Pflag;        /* Proxy username */
 extern char* pflag;        /* Localport flag */
