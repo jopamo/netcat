@@ -43,7 +43,7 @@ void help(void) {
         "option\n\t-s sourceaddr\tLocal source address\n\t-T keyword\tTOS value or TLS options\n\t-U\t\tUse UNIX "
         "domain socket\n\t-u\t\tUDP mode\n\t-V rtable\tSpecify alternate routing table\n\t-v\t\tVerbose\n\t-W "
         "recvlimit\tTerminate after receiving a number of packets\n\t-w timeout\tTimeout for connects and final net "
-        "reads\n\t-X proto\tProxy protocol: \"4\", \"4A\", \"5\" (SOCKS) or \"connect\"\n\t-x addr[:port]\tSpecify "
+        "reads\n\t-X proto\tProxy protocol: \"5\" (SOCKS) or \"connect\"\n\t-x addr[:port]\tSpecify "
         "proxy address and port\n\t-Z\t\tPeer certificate file\n\t-z\t\tZero-I/O mode [used for scanning]\n\tPort "
         "numbers can be individual or ranges: lo-hi [inclusive]\n");
     exit(1);

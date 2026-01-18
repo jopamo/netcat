@@ -49,7 +49,6 @@
 #define HTTP_PROXY_PORT "3128"
 #define HTTP_MAXHDRS 64
 #define SOCKS_V5 5
-#define SOCKS_V4 4
 #define SOCKS_NOAUTH 0
 #define SOCKS_NOMETHOD 0xff
 #define SOCKS_CONNECT 1
@@ -123,26 +122,6 @@ static void getproxypass(const char* proxyuser, const char* proxyhost, char* pw,
     snprintf(prompt, sizeof(prompt), "Proxy password for %s@%s: ", proxyuser, proxyhost);
     if (readpassphrase(prompt, pw, pwlen, RPP_REQUIRE_TTY) == NULL)
         errx(1, "Unable to read proxy passphrase");
-}
-
-/*
- * Error strings adapted from the generally accepted SOCKSv4 spec:
- *
- * http://ftp.icm.edu.pl/packages/socks/socks4/SOCKS4.protocol
- */
-static const char* socks4_strerror(int e) {
-    switch (e) {
-        case 90:
-            return "Succeeded";
-        case 91:
-            return "Request rejected or failed";
-        case 92:
-            return "SOCKS server cannot connect to identd on the client";
-        case 93:
-            return "Client program and identd report different user-ids";
-        default:
-            return "Unknown error";
-    }
 }
 
 /*
@@ -290,43 +269,6 @@ again:
                 break;
             default:
                 errx(1, "connection failed, unsupported address type");
-        }
-    }
-    else if (socksv == 4 || socksv == 44) {
-        if (socksv == 4) {
-            /* This will exit on lookup failure */
-            decode_addrport(host, port, (struct sockaddr*)&addr, sizeof(addr), 1, 0);
-        }
-
-        /* Version 4 */
-        buf[0] = SOCKS_V4;
-        buf[1] = SOCKS_CONNECT; /* connect */
-        memcpy(buf + 2, &in4->sin_port, sizeof in4->sin_port);
-        if (socksv == 4) {
-            memcpy(buf + 4, &in4->sin_addr, sizeof in4->sin_addr);
-        }
-        else {
-            /* SOCKS4A uses addr of 0.0.0.x, and hostname later */
-            buf[4] = buf[5] = buf[6] = 0;
-            buf[7] = 1;
-        }
-        buf[8] = 0; /* empty username */
-        wlen = 9;
-        if (socksv == 44) {
-            /* SOCKS4A has nul-terminated hostname after user */
-            if (strlcpy((char*)buf + 9, host, sizeof(buf) - 9) >= sizeof(buf) - 9)
-                errx(1, "hostname too big");
-            wlen = 9 + strlen(host) + 1;
-        }
-        cnt = atomicio(vwrite, proxyfd, buf, wlen);
-        if (cnt != wlen)
-            err(1, "write failed (%zu/%zu)", cnt, wlen);
-
-        cnt = atomicio(read, proxyfd, buf, 8);
-        if (cnt != 8)
-            err(1, "read failed (%zu/8)", cnt);
-        if (buf[1] != 90) {
-            errx(1, "connection failed, SOCKSv4 error: %s", socks4_strerror(buf[1]));
         }
     }
     else if (socksv == -1) {

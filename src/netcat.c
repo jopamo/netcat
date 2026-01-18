@@ -116,18 +116,6 @@ int main(int argc, char* argv[]) {
             case 'X':
                 if (strcasecmp(optarg, "connect") == 0)
                     socksv = -1; /* HTTP proxy CONNECT */
-                else if (strcmp(optarg, "4") == 0) {
-                    warnx(
-                        "Warning: SOCKSv4 proxy support is deprecated and will be removed in a future version. Please "
-                        "use SOCKSv5.");
-                    socksv = 4; /* SOCKS v.4 */
-                }
-                else if (strcasecmp(optarg, "4A") == 0) {
-                    warnx(
-                        "Warning: SOCKSv4A proxy support is deprecated and will be removed in a future version. Please "
-                        "use SOCKSv5.");
-                    socksv = 44; /* SOCKS v.4A */
-                }
                 else if (strcmp(optarg, "5") == 0)
                     socksv = 5; /* SOCKS v.5 */
                 else

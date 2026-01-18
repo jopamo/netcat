@@ -335,20 +335,14 @@ Use
 .Ar proxy_protocol
 when talking to the proxy server.
 Supported protocols are
-.Cm 4
-(SOCKS v.4),
-.Cm 4A
-(SOCKS v.4A),
 .Cm 5
 (SOCKS v.5)
 and
 .Cm connect
 (HTTPS proxy).
 If the protocol is not specified, SOCKS version 5 is used.
-Note that the SOCKS v.4 protocol is very limited and can only be used when
-the destination host can be resolved to an IPv4 address.
-The other protocols pass the destination as a string to be interpreted
-by the remote proxy and do not have this limitation.
+The protocols pass the destination as a string to be interpreted
+by the remote proxy.
 .It Fl x Ar proxy_address Ns Op : Ns Ar port
 Connect to
 .Ar destination
