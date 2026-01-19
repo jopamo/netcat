@@ -48,7 +48,7 @@ static int base64_encode(const unsigned char* in, size_t in_len, char* out, size
     static const char set[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     char* p = out;
     size_t i;
-    int val = 0;
+    unsigned int val = 0;
     int valb = -6;
 
     if (out_len < (in_len * 4 / 3) + 5)

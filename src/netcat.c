@@ -150,6 +150,7 @@ int main(int argc, char* argv[]) {
     uint32_t protocols;
     int option_index = 0;
     static struct option long_options[] = {{"mptcp", no_argument, NULL, 1001},
+                                           {"help", no_argument, NULL, 'h'},
                                            {"tfo", no_argument, NULL, 1002},
                                            {"mark", required_argument, NULL, 1003},
                                            {"quic", no_argument, NULL, 1004},

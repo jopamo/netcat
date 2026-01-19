@@ -130,3 +130,24 @@ test('cli_bpf_test',
      python,
      args: [files('cli_bpf_test.py'), nc_bin],
      timeout: 10)
+
+utils_test = executable('utils_test',
+  ['utils_simple_test.c', '../src/utils.c', '../compat/openbsd_compat.c'],
+  include_directories : inc,
+  dependencies : deps)
+
+test('utils_unit_test', utils_test)
+
+bpf_failure_test = executable('bpf_failure_test',
+  ['bpf_failure_test.c', '../src/bpf.c', '../src/log.c', '../compat/openbsd_compat.c'],
+  include_directories : inc,
+  dependencies : deps)
+
+test('bpf_failure_unit_test', bpf_failure_test)
+
+tls_conceptual_test = executable('tls_conceptual_test',
+  ['tls_conceptual_test.c'],
+  include_directories : inc,
+  dependencies : [])
+
+test('tls_conceptual_unit_test', tls_conceptual_test)

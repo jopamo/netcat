@@ -71,7 +71,7 @@ void help(void) {
             "\t-4\t\tUse IPv4\n"
             "\t-6\t\tUse IPv6\n"
             "\t-d\t\tDetach from stdin\n"
-            "\t-h\t\tThis help text\n"
+            "\t-h, --help\tThis help text\n"
             "\t-k\t\tKeep inbound sockets open for multiple connects\n"
             "\t-l\t\tListen mode, for inbound connects\n"
             "\t-N\t\tShutdown the network socket after EOF on stdin\n"

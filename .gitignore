@@ -7,6 +7,10 @@ core
 /*.tar.*
 
 build*
+# clangd cache
+.cache/
+__pycache__/
+*.pyc
 # Agent-facing symlinks
 /AGENTS.md
 /CLAUDE.md
