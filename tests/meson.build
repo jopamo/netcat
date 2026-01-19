@@ -1,7 +1,7 @@
 python = import('python').find_installation('python3')
 
 proxy_proto_test = executable('proxy_proto_test',
-  ['proxy_proto_test.c', '../src/proxy_proto.c', '../src/atomicio.c', '../compat/openbsd_compat.c'],
+  ['proxy_proto_test.c', '../src/proxy_proto.c', '../src/atomicio.c'],
   include_directories : inc,
   dependencies : deps)
 
@@ -20,7 +20,7 @@ test('cli_socks_test',
      timeout: 15)
 
 io_shaping_test = executable('io_shaping_test',
-  ['io_shaping_test.c', '../src/io.c', '../src/utils.c', '../src/atomicio.c', '../src/log.c', '../compat/tls_compat.c', '../compat/openbsd_compat.c'],
+  ['io_shaping_test.c', '../src/io.c', '../src/utils.c', '../src/atomicio.c', '../src/log.c', '../src/tls_compat.c'],
   include_directories : inc,
   dependencies : deps)
 
@@ -132,14 +132,14 @@ test('cli_bpf_test',
      timeout: 10)
 
 utils_test = executable('utils_test',
-  ['utils_simple_test.c', '../src/utils.c', '../compat/openbsd_compat.c'],
+  ['utils_simple_test.c', '../src/utils.c'],
   include_directories : inc,
   dependencies : deps)
 
 test('utils_unit_test', utils_test)
 
 bpf_failure_test = executable('bpf_failure_test',
-  ['bpf_failure_test.c', '../src/bpf.c', '../src/log.c', '../compat/openbsd_compat.c'],
+  ['bpf_failure_test.c', '../src/bpf.c', '../src/log.c'],
   include_directories : inc,
   dependencies : deps)
 

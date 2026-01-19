@@ -86,7 +86,7 @@ static void test_string_safety_concepts() {
 
     // Document expected behavior
     printf("  Expected string handling:\n");
-    printf("    - strlcpy/strlcat for bounded copying\n");
+    printf("    - bounded copy helpers with NUL termination\n");
     printf("    - Proper buffer size checking\n");
     printf("    - NUL termination guarantees\n");
     printf("    - No buffer overflows\n");

@@ -251,7 +251,7 @@ void readwrite(int net_fd, struct tls* tls_ctx) {
 
         /* try to fill buffer for fuzzing */
         if (((fuzz_tcp && !uflag) || (fuzz_udp && uflag)) && stdinbufpos < BUFSIZE) {
-            arc4random_buf(stdinbuf + stdinbufpos, BUFSIZE - stdinbufpos);
+            nc_random_buf(stdinbuf + stdinbufpos, BUFSIZE - stdinbufpos);
             stdinbufpos = BUFSIZE;
             pfd[POLL_NETOUT].events = POLLOUT;
         }
@@ -441,7 +441,7 @@ ssize_t drainbuf(int fd, unsigned char* buf, size_t* bufpos, struct tls* tls, in
 
                     snprintf((char*)temp_buf, sizeof(temp_buf),
                              "{\"metadata\":{\"id\":%u,\"region\":\"%s\",\"status\":\"%s\"},\"payload\":\"%s\"}",
-                             arc4random_uniform(10000), regions[arc4random_uniform(4)], statuses[arc4random_uniform(4)],
+                             nc_random_uniform(10000), regions[nc_random_uniform(4)], statuses[nc_random_uniform(4)],
                              b64);
                     write_len = strlen((char*)temp_buf);
                 }

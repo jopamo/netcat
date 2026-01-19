@@ -136,7 +136,7 @@ void usage(int ret) {
             "[-H hash] [-I length]\n"
             "\t  [-i interval] [--jitter s] [-K keyfile] [-M ttl] [-m minttl] [-O length]\n"
             "\t  [--profile type] [--quic-mask] [-P proxy_username] [-p source_port]\n"
-            "\t  [-R CAfile] [-s sourceaddr] [-T keyword] [-V rtable] [-W recvlimit]\n"
+            "\t  [-R CAfile] [-s sourceaddr] [-T keyword] [-W recvlimit]\n"
             "\t  [-w timeout] [-X proxy_protocol] [-x proxy_address[:port]]\n"
             "\t  [--bpf-evasion file] [--xdp-stealth iface]\n"
             "\t  [destination] [port]\n");

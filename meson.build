@@ -5,21 +5,11 @@ project('netcat', 'c',
 cc = meson.get_compiler('c')
 
 # Dependencies
-# libbsd is required for OpenBSD compatibility on Linux (strlcpy, readpassphrase, etc.)
-libbsd = dependency('libbsd', required : false)
-if not libbsd.found()
-  # Try to find it via cc.find_library if pkg-config fails, though unlikely for libbsd
-  libbsd = cc.find_library('bsd', required : false)
-endif
-
 # libresolv is often needed for b64_ntop and DNS
 libresolv = cc.find_library('resolv', required : false)
 
 deps = []
-if libbsd.found()
-  deps += libbsd
-  add_project_arguments('-D_GNU_SOURCE', language : 'c')
-endif
+add_project_arguments('-D_GNU_SOURCE', language : 'c')
 
 if libresolv.found()
   deps += libresolv
@@ -70,19 +60,6 @@ if get_option('security_hole')
   add_project_arguments('-DGAPING_SECURITY_HOLE', language : 'c')
 endif
 
-# Check for readpassphrase.h location
-if cc.has_header('bsd/readpassphrase.h')
-  add_project_arguments('-DHAVE_BSD_READPASSPHRASE_H', language : 'c')
-elif cc.has_header('readpassphrase.h')
-  add_project_arguments('-DHAVE_READPASSPHRASE_H', language : 'c')
-else
-   if libbsd.found()
-      warning('readpassphrase.h not found but libbsd found. Assuming bsd/readpassphrase.h might work if paths were correct, but proceeding without definition.')
-   else
-      warning('readpassphrase.h not found. Compilation will likely fail.')
-   endif
-endif
-
 srcs = [
   'src/netcat.c',
   'src/atomicio.c',
@@ -90,18 +67,17 @@ srcs = [
   'src/io.c',
   'src/network.c',
   'src/tls.c',
+  'src/tls_compat.c',
   'src/utils.c',
   'src/log.c',
   'src/pcap.c',
   'src/proxy_proto.c',
   'src/hexdump.c',
   'src/quic.c',
-  'src/bpf.c',
-  'compat/tls_compat.c',
-  'compat/openbsd_compat.c'
+  'src/bpf.c'
 ]
 
-inc = include_directories('src', 'compat')
+inc = include_directories('src')
 
 nc_bin = executable('nc',
   srcs,

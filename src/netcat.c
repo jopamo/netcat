@@ -74,7 +74,6 @@ int Dflag;              /* sodebug */
 int Iflag;              /* TCP receive buffer size */
 int Oflag;              /* TCP send buffer size */
 int Tflag = -1;         /* IP Type of Service */
-int rtableid = -1;
 
 int fuzz_tcp; /* Fuzz TCP with random data */
 
@@ -188,7 +187,7 @@ int main(int argc, char* argv[]) {
 
     signal(SIGPIPE, SIG_IGN);
 
-    while ((ch = getopt_long(argc, argv, "46C:cDde:FH:hI:i:jK:klM:m:NnO:o:P:p:R:rs:T:UuV:vW:w:X:x:Z:z", long_options,
+    while ((ch = getopt_long(argc, argv, "46C:cDde:FH:hI:i:jK:klM:m:NnO:o:P:p:R:rs:T:UuvW:w:X:x:Z:z", long_options,
                              &option_index)) != -1) {
         switch (ch) {
             case 1001:
@@ -198,7 +197,7 @@ int main(int argc, char* argv[]) {
                 tfoflag = 1;
                 break;
             case 1003:
-                sockmark = strtonum(optarg, 0, INT_MAX, &errstr);
+                sockmark = nc_strtonum(optarg, 0, INT_MAX, &errstr);
                 if (errstr)
                     errx(1, "mark is %s", errstr);
                 break;
@@ -263,7 +262,7 @@ int main(int argc, char* argv[]) {
                     errx(1, "bpf evasion load failed");
                 break;
             case 1021:
-                jitter = strtonum(optarg, 0, INT_MAX, &errstr);
+                jitter = nc_strtonum(optarg, 0, INT_MAX, &errstr);
                 if (errstr)
                     errx(1, "jitter is %s", errstr);
                 break;
@@ -322,7 +321,7 @@ int main(int argc, char* argv[]) {
                 help();
                 break;
             case 'i':
-                iflag = strtonum(optarg, 0, UINT_MAX, &errstr);
+                iflag = nc_strtonum(optarg, 0, UINT_MAX, &errstr);
                 if (errstr)
                     errx(1, "interval %s: %s", errstr, optarg);
                 break;
@@ -337,12 +336,12 @@ int main(int argc, char* argv[]) {
                 lflag = 1;
                 break;
             case 'M':
-                ttl = strtonum(optarg, 0, 255, &errstr);
+                ttl = nc_strtonum(optarg, 0, 255, &errstr);
                 if (errstr)
                     errx(1, "ttl is %s", errstr);
                 break;
             case 'm':
-                minttl = strtonum(optarg, 0, 255, &errstr);
+                minttl = nc_strtonum(optarg, 0, 255, &errstr);
                 if (errstr)
                     errx(1, "minttl is %s", errstr);
                 break;
@@ -371,21 +370,16 @@ int main(int argc, char* argv[]) {
             case 'u':
                 uflag = 1;
                 break;
-            case 'V':
-                rtableid = (int)strtonum(optarg, 0, RT_TABLEID_MAX, &errstr);
-                if (errstr)
-                    errx(1, "rtable %s: %s", errstr, optarg);
-                break;
             case 'v':
                 vflag = 1;
                 break;
             case 'W':
-                recvlimit = strtonum(optarg, 1, INT_MAX, &errstr);
+                recvlimit = nc_strtonum(optarg, 1, INT_MAX, &errstr);
                 if (errstr)
                     errx(1, "receive limit %s: %s", errstr, optarg);
                 break;
             case 'w':
-                timeout = strtonum(optarg, 0, INT_MAX / 1000, &errstr);
+                timeout = nc_strtonum(optarg, 0, INT_MAX / 1000, &errstr);
                 if (errstr)
                     errx(1, "timeout %s: %s", errstr, optarg);
                 timeout *= 1000;
@@ -408,12 +402,12 @@ int main(int argc, char* argv[]) {
                 Dflag = 1;
                 break;
             case 'I':
-                Iflag = strtonum(optarg, 1, 65536 << 14, &errstr);
+                Iflag = nc_strtonum(optarg, 1, 65536 << 14, &errstr);
                 if (errstr != NULL)
                     errx(1, "TCP receive window %s: %s", errstr, optarg);
                 break;
             case 'O':
-                Oflag = strtonum(optarg, 1, 65536 << 14, &errstr);
+                Oflag = nc_strtonum(optarg, 1, 65536 << 14, &errstr);
                 if (errstr != NULL)
                     errx(1, "TCP send window %s: %s", errstr, optarg);
                 break;
@@ -430,7 +424,7 @@ int main(int argc, char* argv[]) {
                 if (strlen(optarg) > 1 && optarg[0] == '0' && optarg[1] == 'x')
                     Tflag = (int)strtol(optarg, NULL, 16);
                 else
-                    Tflag = (int)strtonum(optarg, 0, 255, &errstr);
+                    Tflag = (int)nc_strtonum(optarg, 0, 255, &errstr);
                 if (Tflag < 0 || Tflag > 255 || errstr || errno)
                     errx(1, "illegal tos/tls value %s", optarg);
                 break;
@@ -448,10 +442,6 @@ int main(int argc, char* argv[]) {
             errx(1, "xdp stealth failed");
         exit(0);
     }
-
-    if (rtableid >= 0)
-        if (setrtable(rtableid) == -1)
-            err(1, "setrtable");
 
     if (netns) {
 #ifdef CLONE_NEWNET
@@ -490,80 +480,7 @@ int main(int argc, char* argv[]) {
     else
         usage(1);
 
-    if (usetls) {
-        if (Cflag && unveil(Cflag, "r") == -1)
-            err(1, "unveil %s", Cflag);
-        if (unveil(Rflag, "r") == -1)
-            err(1, "unveil %s", Rflag);
-        if (Kflag && unveil(Kflag, "r") == -1)
-            err(1, "unveil %s", Kflag);
-        if (oflag && unveil(oflag, "r") == -1)
-            err(1, "unveil %s", oflag);
-    }
-    else if (family == AF_UNIX && uflag && lflag && !keepopen) {
-        /*
-         * After recvfrom(2) from client, the server connects
-         * to the client socket.  As the client path is determined
-         * during runtime, we cannot unveil(2).
-         */
-    }
-    else if (family == AF_VSOCK) {
-        /* no filesystem visibility */
-        if (unveil("/", "") == -1)
-            err(1, "unveil /");
-    }
-    else {
-        if (family == AF_UNIX) {
-            if (host[0] != '@') {
-                if (unveil(host, "rwc") == -1)
-                    err(1, "unveil %s", host);
-            }
-            if (uflag && !keepopen) {
-                if (sflag) {
-                    if (sflag[0] != '@') {
-                        if (unveil(sflag, "rwc") == -1)
-                            err(1, "unveil %s", sflag);
-                    }
-                }
-                else {
-                    if (unveil("/tmp", "rwc") == -1)
-                        err(1, "unveil /tmp");
-                }
-            }
-        }
-        else {
-            /* no filesystem visibility */
-            if (unveil("/", "") == -1)
-                err(1, "unveil /");
-        }
-    }
-
-    if (family == AF_UNIX) {
-        if (pledge("stdio rpath wpath cpath tmppath unix", NULL) == -1)
-            err(1, "pledge");
-    }
-    else if (Fflag && Pflag) {
-        if (pledge("stdio inet dns sendfd tty", NULL) == -1)
-            err(1, "pledge");
-    }
-    else if (Fflag) {
-        if (pledge("stdio inet dns sendfd", NULL) == -1)
-            err(1, "pledge");
-    }
-    else if (Pflag && usetls) {
-        if (pledge("stdio rpath inet dns tty", NULL) == -1)
-            err(1, "pledge");
-    }
-    else if (Pflag) {
-        if (pledge("stdio inet dns tty", NULL) == -1)
-            err(1, "pledge");
-    }
-    else if (usetls) {
-        if (pledge("stdio rpath inet dns", NULL) == -1)
-            err(1, "pledge");
-    }
-    else if (pledge("stdio inet dns", NULL) == -1)
-        err(1, "pledge");
+    /* No filesystem visibility restrictions. */
 
     if (lflag && sflag)
         errx(1, "cannot use -s and -l");
@@ -606,7 +523,7 @@ int main(int argc, char* argv[]) {
             unix_dg_tmp_socket = sflag;
         }
         else {
-            strlcpy(unix_dg_tmp_socket_buf, "/tmp/nc.XXXXXXXXXX", UNIX_DG_TMP_SOCKET_SIZE);
+            nc_strlcpy(unix_dg_tmp_socket_buf, "/tmp/nc.XXXXXXXXXX", UNIX_DG_TMP_SOCKET_SIZE);
             if (mktemp(unix_dg_tmp_socket_buf) == NULL)
                 err(1, "mktemp");
             unix_dg_tmp_socket = unix_dg_tmp_socket_buf;
@@ -704,13 +621,6 @@ int main(int argc, char* argv[]) {
         }
         if (TLSopt & TLS_MUSTSTAPLE)
             tls_config_ocsp_require_stapling(tls_cfg);
-
-        if (Pflag) {
-            if (pledge("stdio inet dns tty", NULL) == -1)
-                err(1, "pledge");
-        }
-        else if (pledge("stdio inet dns", NULL) == -1)
-            err(1, "pledge");
     }
     if (lflag) {
         ret = 0;
@@ -762,8 +672,6 @@ int main(int argc, char* argv[]) {
                 err(1, NULL);
             if (uflag && keepopen) {
                 if (family == AF_UNIX) {
-                    if (pledge("stdio unix", NULL) == -1)
-                        err(1, "pledge");
                 }
                 /*
                  * For UDP and --keep-open, don't connect the socket,
@@ -792,8 +700,6 @@ int main(int argc, char* argv[]) {
                     err(1, "connect");
 
                 if (family == AF_UNIX) {
-                    if (pledge("stdio unix", NULL) == -1)
-                        err(1, "pledge");
                 }
                 if (vflag)
                     report_sock("Connection received", (struct sockaddr*)&z, len, family == AF_UNIX ? host : NULL);

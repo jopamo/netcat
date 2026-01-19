@@ -19,13 +19,13 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <time.h>
 #include <tls.h>
 #include <unistd.h>
 
 #include "atomicio.h"
-#include "openbsd_compat.h"
 
 #ifndef AF_VSOCK
 #define AF_VSOCK 40
@@ -80,7 +80,6 @@ extern int Dflag;          /* sodebug */
 extern int Iflag;          /* TCP receive buffer size */
 extern int Oflag;          /* TCP send buffer size */
 extern int Tflag;          /* IP Type of Service */
-extern int rtableid;
 
 extern int usetls;           /* use TLS */
 extern const char* Cflag;    /* Public cert file */
@@ -115,6 +114,12 @@ extern int quic_mask;
 /* RNG hook for testing */
 extern uint32_t (*nc_random)(void);
 double gaussian_random(double mean, double stddev);
+
+long long nc_strtonum(const char* numstr, long long minval, long long maxval, const char** errstrp);
+size_t nc_strlcpy(char* dst, const char* src, size_t dsize);
+uint32_t nc_random_u32(void);
+void nc_random_buf(void* buf, size_t len);
+uint32_t nc_random_uniform(uint32_t upper_bound);
 
 int strtoport(char* portstr, int udp);
 void build_ports(char*);

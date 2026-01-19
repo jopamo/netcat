@@ -46,12 +46,12 @@ int vsock_listen(const char* cid_str, const char* port_str) {
     if (cid_str == NULL || strcmp(cid_str, "any") == 0)
         svm.svm_cid = VMADDR_CID_ANY;
     else
-        svm.svm_cid = (unsigned int)strtonum(cid_str, 0, UINT_MAX, &errstr);
+        svm.svm_cid = (unsigned int)nc_strtonum(cid_str, 0, UINT_MAX, &errstr);
 
     if (port_str == NULL)
         svm.svm_port = VMADDR_PORT_ANY;
     else
-        svm.svm_port = (unsigned int)strtonum(port_str, 0, UINT_MAX, &errstr);
+        svm.svm_port = (unsigned int)nc_strtonum(port_str, 0, UINT_MAX, &errstr);
 
     if ((s = direct_socket(AF_VSOCK, SOCK_STREAM, 0)) == -1)
         return -1;
@@ -88,9 +88,9 @@ int vsock_connect(const char* cid_str, const char* port_str) {
     if (strcmp(cid_str, "local") == 0)
         svm.svm_cid = VMADDR_CID_LOCAL;
     else
-        svm.svm_cid = (unsigned int)strtonum(cid_str, 0, UINT_MAX, &errstr);
+        svm.svm_cid = (unsigned int)nc_strtonum(cid_str, 0, UINT_MAX, &errstr);
 
-    svm.svm_port = (unsigned int)strtonum(port_str, 0, UINT_MAX, &errstr);
+    svm.svm_port = (unsigned int)nc_strtonum(port_str, 0, UINT_MAX, &errstr);
 
     if ((s = direct_socket(AF_VSOCK, SOCK_STREAM, 0)) == -1)
         return -1;
@@ -123,7 +123,7 @@ int unix_bind(char* path, int flags) {
 
     if (path[0] == '@') {
         s_un.sun_path[0] = '\0';
-        if (strlcpy(&s_un.sun_path[1], &path[1], sizeof(s_un.sun_path) - 1) >= sizeof(s_un.sun_path) - 1) {
+        if (nc_strlcpy(&s_un.sun_path[1], &path[1], sizeof(s_un.sun_path) - 1) >= sizeof(s_un.sun_path) - 1) {
             close(s);
             errno = ENAMETOOLONG;
             return -1;
@@ -131,7 +131,7 @@ int unix_bind(char* path, int flags) {
         len = offsetof(struct sockaddr_un, sun_path) + strlen(path);
     }
     else {
-        if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >= sizeof(s_un.sun_path)) {
+        if (nc_strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >= sizeof(s_un.sun_path)) {
             close(s);
             errno = ENAMETOOLONG;
             return -1;
@@ -174,7 +174,7 @@ int unix_connect(char* path) {
 
     if (path[0] == '@') {
         s_un.sun_path[0] = '\0';
-        if (strlcpy(&s_un.sun_path[1], &path[1], sizeof(s_un.sun_path) - 1) >= sizeof(s_un.sun_path) - 1) {
+        if (nc_strlcpy(&s_un.sun_path[1], &path[1], sizeof(s_un.sun_path) - 1) >= sizeof(s_un.sun_path) - 1) {
             close(s);
             errno = ENAMETOOLONG;
             return -1;
@@ -182,7 +182,7 @@ int unix_connect(char* path) {
         len = offsetof(struct sockaddr_un, sun_path) + strlen(path);
     }
     else {
-        if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >= sizeof(s_un.sun_path)) {
+        if (nc_strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >= sizeof(s_un.sun_path)) {
             close(s);
             errno = ENAMETOOLONG;
             return -1;
@@ -243,8 +243,10 @@ int remote_connect(const char* host, const char* port, struct addrinfo hints, ch
         if (sflag || pflag) {
             struct addrinfo ahints, *ares;
 
-            /* try SO_BINDANY, but don't insist */
+            /* try SO_BINDANY when available, but don't insist */
+#ifdef SO_BINDANY
             setsockopt(s, SOL_SOCKET, SO_BINDANY, &on, sizeof(on));
+#endif
             memset(&ahints, 0, sizeof(struct addrinfo));
             ahints.ai_family = res->ai_family;
             ahints.ai_socktype = uflag ? SOCK_DGRAM : SOCK_STREAM;
@@ -416,7 +418,7 @@ void connection_info(const char* host, const char* port, const char* proto, cons
     if (!nflag) {
         const char* errstr;
 
-        int p = strtonum(port, 1, PORT_MAX, &errstr);
+        int p = nc_strtonum(port, 1, PORT_MAX, &errstr);
         if (errstr)
             errx(1, "port number %s: %s", errstr, port);
         sv = getservbyport(htons(p), proto);

@@ -76,21 +76,7 @@ def test_version_output(nc_path: str) -> bool:
     """Test version output format and exit code."""
     print("Testing version output...")
     
-    # This netcat doesn't have a version flag
-    # Check if -V is for version or something else
-    exit_code, stdout, stderr = run_nc(nc_path, ["-V"])
-    
-    # -V requires an argument (rtable), so it should fail
-    if exit_code == 0:
-        print(f"  ⚠ -V doesn't show version (exit code 0)")
-        # Maybe it shows version anyway
-        if "version" in stdout.lower() or "version" in stderr.lower():
-            print("  ✓ Version output found")
-            return True
-    else:
-        print(f"  ⚠ -V requires argument (rtable), not version flag")
-    
-    # Try --version if -V doesn't work
+    # Try --version if implemented
     exit_code, stdout, stderr = run_nc(nc_path, ["--version"])
     if exit_code == 0 and ("version" in stdout.lower() or "version" in stderr.lower()):
         print("  ✓ Version output found with --version")

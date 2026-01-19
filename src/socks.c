@@ -36,13 +36,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 #include <resolv.h>
-#if defined(HAVE_BSD_READPASSPHRASE_H)
-#include <bsd/readpassphrase.h>
-#else
-#include <readpassphrase.h>
-#endif
 #include "atomicio.h"
 
 #define SOCKS_PORT "1080"
@@ -116,11 +112,44 @@ static int proxy_read_line(int fd, char* buf, size_t bufsz) {
     return (off);
 }
 
+static int read_password(const char* prompt, char* pw, size_t pwlen) {
+    struct termios oldt, newt;
+    int fd = STDIN_FILENO;
+
+    if (pwlen == 0)
+        return -1;
+    if (!isatty(fd))
+        return -1;
+    if (tcgetattr(fd, &oldt) == -1)
+        return -1;
+    newt = oldt;
+    newt.c_lflag &= ~(ECHO);
+    if (tcsetattr(fd, TCSAFLUSH, &newt) == -1)
+        return -1;
+
+    fprintf(stderr, "%s", prompt);
+    fflush(stderr);
+
+    if (fgets(pw, (int)pwlen, stdin) == NULL) {
+        tcsetattr(fd, TCSAFLUSH, &oldt);
+        return -1;
+    }
+
+    tcsetattr(fd, TCSAFLUSH, &oldt);
+    fprintf(stderr, "\n");
+
+    size_t len = strlen(pw);
+    if (len > 0 && pw[len - 1] == '\n')
+        pw[len - 1] = '\0';
+
+    return 0;
+}
+
 static void getproxypass(const char* proxyuser, const char* proxyhost, char* pw, size_t pwlen) {
     char prompt[512];
 
     snprintf(prompt, sizeof(prompt), "Proxy password for %s@%s: ", proxyuser, proxyhost);
-    if (readpassphrase(prompt, pw, pwlen, RPP_REQUIRE_TTY) == NULL)
+    if (read_password(prompt, pw, pwlen) == -1)
         errx(1, "Unable to read proxy passphrase");
 }
 

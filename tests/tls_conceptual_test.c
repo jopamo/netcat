@@ -104,7 +104,7 @@ static void test_dtls_concepts() {
 static void test_tls_compat_concepts() {
     printf("Testing TLS compatibility concepts...\n");
 
-    printf("  compat/tls_compat.c considerations:\n");
+    printf("  src/tls_compat.c considerations:\n");
     printf("    - Exercise fallback paths when preferred TLS backend is absent\n");
     printf("    - Force backend errors and assert propagated error codes/messages\n");
     printf("    - Different TLS library backends (libtls, OpenSSL)\n");

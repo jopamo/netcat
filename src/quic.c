@@ -53,7 +53,7 @@ int quic_test(int s, char* host, char* port) {
     buf[5] = 0x08;
 
     /* DCID: Random 8 bytes */
-    arc4random_buf(&buf[6], 8);
+    nc_random_buf(&buf[6], 8);
 
     /* SCID Length: 0 bytes */
     buf[14] = 0x00;
