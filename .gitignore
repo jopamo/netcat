@@ -5,7 +5,7 @@
 
 /*.tar.*
 
-build*
+build/
 # clangd cache
 .cache/
 __pycache__/
