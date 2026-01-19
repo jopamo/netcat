@@ -1,5 +1,4 @@
 *.o
-core
 
 /nc
 /netcat
@@ -11,7 +10,3 @@ build*
 .cache/
 __pycache__/
 *.pyc
-# Agent-facing symlinks
-/AGENTS.md
-/CLAUDE.md
-/GEMINI.md
