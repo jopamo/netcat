@@ -67,6 +67,21 @@ void report_sock(const char* msg, const struct sockaddr* sa, socklen_t salen, ch
 void help(void) {
     usage(0);
     fprintf(stderr,
+            "\n"
+            "        /\\_/\\\n"
+            "       / 0 0 \\\n"
+            "      ====v====\n"
+            "       \\  W  /\n"
+            "       |     |     _\n"
+            "       / ___ \\    /\n"
+            "      / /   \\ \\  |\n"
+            "     (((-----)))-'\n"
+            "      /\n"
+            "     (      ___\n"
+            "      \\__.=|___E\n"
+            "             /\n"
+            "\n");
+    fprintf(stderr,
             "\n\tGeneral Options:\n"
             "\t-4\t\tUse IPv4\n"
             "\t-6\t\tUse IPv6\n"
