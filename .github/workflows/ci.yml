@@ -43,7 +43,8 @@ jobs:
           dnf -y install \
             clang llvm lld compiler-rt \
             git meson ninja-build pkgconf-pkg-config \
-            libbpf-devel libxdp-devel libbsd-devel openssl openssl-devel
+            libbpf-devel libxdp-devel libbsd-devel openssl openssl-devel \
+            python3-jinja2
 
       - name: Configure
         run: |

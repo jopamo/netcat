@@ -37,12 +37,26 @@ char* portlist[PORT_MAX + 1];
 char* exec_path = NULL;
 
 /* Mock functions for pcap */
-void pcap_open(int fd, const char* path) {}
-void pcap_log(int fd, const void* buf, size_t len, int direction) {}
+void pcap_open(int fd, const char* path) {
+    (void)fd;
+    (void)path;
+}
+void pcap_log(int fd, const void* buf, size_t len, int direction) {
+    (void)fd;
+    (void)buf;
+    (void)len;
+    (void)direction;
+}
 void pcap_close(void) {}
 
 /* Mock functions for hexdump */
-void hexdump(FILE* fp, const char* prefix, const unsigned char* buf, size_t len, size_t total) {}
+void hexdump(FILE* fp, const char* prefix, const unsigned char* buf, size_t len, size_t total) {
+    (void)fp;
+    (void)prefix;
+    (void)buf;
+    (void)len;
+    (void)total;
+}
 
 /* Helper for atomic read from socket */
 static void read_all(int fd, char* buf, size_t len) {
@@ -247,7 +261,10 @@ static void test_fillbuf_basic() {
 
     /* Write some data to one end */
     const char* test_data = "Hello, world!";
-    write(sv[1], test_data, strlen(test_data));
+    if (write(sv[1], test_data, strlen(test_data)) != (ssize_t)strlen(test_data)) {
+        perror("write");
+        exit(1);
+    }
     shutdown(sv[1], SHUT_WR); /* Signal EOF */
 
     /* Read it with fillbuf */

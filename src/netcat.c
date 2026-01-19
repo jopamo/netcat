@@ -525,9 +525,13 @@ int main(int argc, char* argv[]) {
             unix_dg_tmp_socket = sflag;
         }
         else {
+            int tmpfd;
+
             nc_strlcpy(unix_dg_tmp_socket_buf, "/tmp/nc.XXXXXXXXXX", UNIX_DG_TMP_SOCKET_SIZE);
-            if (mktemp(unix_dg_tmp_socket_buf) == NULL)
-                err(1, "mktemp");
+            if ((tmpfd = mkstemp(unix_dg_tmp_socket_buf)) == -1)
+                err(1, "mkstemp");
+            close(tmpfd);
+            unlink(unix_dg_tmp_socket_buf);
             unix_dg_tmp_socket = unix_dg_tmp_socket_buf;
         }
     }

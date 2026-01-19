@@ -100,14 +100,14 @@ int quic_test(int s, char* host, char* port) {
         if ((recv_buf[0] & 0x80) == 0) {
             /* Short header? Unlikely response to Initial with bad version. */
             if (vflag)
-                warnx("Received short header packet from %s", host);
+                warnx("Received short header packet from %s:%s", host, port);
             return 0;
         }
 
         /* Version must be 0 for Version Negotiation */
         if (len >= 5 && recv_buf[1] == 0 && recv_buf[2] == 0 && recv_buf[3] == 0 && recv_buf[4] == 0) {
             if (vflag)
-                fprintf(stderr, "QUIC Version Negotiation packet received from %s\n", host);
+                fprintf(stderr, "QUIC Version Negotiation packet received from %s:%s\n", host, port);
             if (jflag) {
                 /* Structured log is handled by connection_info generally, but we can augment? */
             }
@@ -116,8 +116,8 @@ int quic_test(int s, char* host, char* port) {
 
         /* Or maybe the server accepted our bogus version? Unlikely. */
         if (vflag)
-            warnx("Received QUIC packet with version %02x%02x%02x%02x from %s", recv_buf[1], recv_buf[2], recv_buf[3],
-                  recv_buf[4], host);
+            warnx("Received QUIC packet with version %02x%02x%02x%02x from %s:%s", recv_buf[1], recv_buf[2],
+                  recv_buf[3], recv_buf[4], host, port);
 
         /* If we got ANY valid-looking QUIC packet back, we can probably say it speaks QUIC. */
         return 1;
