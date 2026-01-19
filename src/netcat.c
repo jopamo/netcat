@@ -38,6 +38,7 @@
 #include "quic.h"
 #include "bpf.h"
 #include "syscalls.h"
+#include "version.h"
 #include <getopt.h>
 #include <sched.h>
 #include <fcntl.h>
@@ -173,6 +174,7 @@ int main(int argc, char* argv[]) {
                                            {"profile", required_argument, NULL, 1022},
                                            {"quic-mask", no_argument, NULL, 1023},
                                            {"xdp-stealth", required_argument, NULL, 1024},
+                                           {"version", no_argument, NULL, 1025},
 #ifdef GAPING_SECURITY_HOLE
                                            {"exec", required_argument, NULL, 'e'},
 #endif
@@ -275,6 +277,9 @@ int main(int argc, char* argv[]) {
             case 1024:
                 xdp_iface = optarg;
                 break;
+            case 1025:
+                printf("netcat %s (commit %s %s)\n", NC_VERSION, NC_GIT_HASH, NC_GIT_DATE);
+                exit(0);
             case '4':
                 family = AF_INET;
                 break;

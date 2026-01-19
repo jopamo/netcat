@@ -60,6 +60,26 @@ if get_option('security_hole')
   add_project_arguments('-DGAPING_SECURITY_HOLE', language : 'c')
 endif
 
+git = find_program('git', required : false)
+git_hash = 'unknown'
+git_date = 'unknown'
+if git.found()
+  r = run_command(git, 'rev-parse', '--short=12', 'HEAD', check : false)
+  if r.returncode() == 0
+    git_hash = r.stdout().strip()
+  endif
+  r = run_command(git, 'show', '-s', '--format=%cs', 'HEAD', check : false)
+  if r.returncode() == 0
+    git_date = r.stdout().strip()
+  endif
+endif
+
+version_conf = configuration_data()
+version_conf.set('NC_VERSION', meson.project_version())
+version_conf.set('NC_GIT_HASH', git_hash)
+version_conf.set('NC_GIT_DATE', git_date)
+configure_file(input : 'src/version.h.in', output : 'version.h', configuration : version_conf)
+
 srcs = [
   'src/netcat.c',
   'src/atomicio.c',
@@ -77,7 +97,7 @@ srcs = [
   'src/bpf.c'
 ]
 
-inc = include_directories('src')
+inc = include_directories('src', '.')
 
 nc_bin = executable('nc',
   srcs,

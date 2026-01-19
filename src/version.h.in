@@ -1,0 +1,5 @@
+#pragma once
+
+#define NC_VERSION "@NC_VERSION@"
+#define NC_GIT_HASH "@NC_GIT_HASH@"
+#define NC_GIT_DATE "@NC_GIT_DATE@"
