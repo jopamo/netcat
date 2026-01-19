@@ -42,8 +42,8 @@ size_t nc_strlcpy(char* dst, const char* src, size_t dsize) {
 }
 
 static int fill_random(void* buf, size_t len) {
-#ifdef __linux__
     unsigned char* p = buf;
+#ifdef __linux__
     while (len > 0) {
         ssize_t n = getrandom(p, len, 0);
         if (n < 0) {
@@ -62,7 +62,6 @@ static int fill_random(void* buf, size_t len) {
     int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
     if (fd == -1)
         return -1;
-    unsigned char* p = buf;
     while (len > 0) {
         ssize_t n = read(fd, p, len);
         if (n < 0) {

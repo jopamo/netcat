@@ -6,6 +6,17 @@
 #include <linux/vm_sockets.h>
 #endif
 
+#ifndef IPTOS_DSCP_CS0
+#define IPTOS_DSCP_CS0 0x00
+#define IPTOS_DSCP_CS1 0x20
+#define IPTOS_DSCP_CS2 0x40
+#define IPTOS_DSCP_CS3 0x60
+#define IPTOS_DSCP_CS4 0x80
+#define IPTOS_DSCP_CS5 0xa0
+#define IPTOS_DSCP_CS6 0xc0
+#define IPTOS_DSCP_CS7 0xe0
+#endif
+
 #ifndef AF_VSOCK
 #define AF_VSOCK 40
 #endif
@@ -225,7 +236,10 @@ int unix_listen(char* path) {
  */
 int remote_connect(const char* host, const char* port, struct addrinfo hints, char* ipaddr) {
     struct addrinfo *res, *res0;
-    int s = -1, error, herr, on = 1, save_errno;
+    int s = -1, error, herr, save_errno;
+#ifdef SO_BINDANY
+    int on = 1;
+#endif
 
     if ((error = getaddrinfo(host, port, &hints, &res0)))
         errx(1, "getaddrinfo for host \"%s\" port %s: %s", host, port, gai_strerror(error));

@@ -66,8 +66,6 @@ static void find_gadget(void) {
         return;
     /* Scan 'read' function for gadgets */
     unsigned char* p = (unsigned char*)read;
-    int found_any = 0;
-
 #if defined(__x86_64__)
     for (int i = 0; i < 500; i++) {
         if (p[i] == 0x0f && p[i + 1] == 0x05) {
@@ -86,19 +84,12 @@ static void find_gadget(void) {
             if (!valid)
                 continue;
 
-            /* If followed by ret, it's perfect for spoofing */
+            /* If followed by ret, it's safe for indirect call */
             if (p[i + 2] == 0xC3) {
                 syscall_gadget = (void*)(p + i);
                 ret_gadget = (void*)(p + i + 2);
                 can_spoof = 0; /* Level 3 disabled for stability in this env */
-                break;         /* Found the holy grail */
-            }
-
-            /* Otherwise, keep as fallback if we haven't found anything yet */
-            if (!found_any) {
-                syscall_gadget = (void*)(p + i);
-                can_spoof = 0;
-                found_any = 1;
+                break;         /* Found a safe gadget */
             }
         }
     }
