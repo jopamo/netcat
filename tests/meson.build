@@ -22,7 +22,8 @@ test('cli_socks_test',
 io_shaping_test = executable('io_shaping_test',
   ['io_shaping_test.c', '../src/io.c', '../src/utils.c', '../src/atomicio.c', '../src/log.c', '../src/tls_compat.c'],
   include_directories : inc,
-  dependencies : deps)
+  dependencies : deps,
+  link_with : [mbedtls_lib])
 
 test('io_shaping_unit_test', io_shaping_test)
 

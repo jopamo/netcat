@@ -94,7 +94,6 @@ int sockpriority = -1; /* SO_PRIORITY */
 
 int usetls;           /* use TLS */
 int dtls;             /* use DTLS */
-int ktls;             /* use Kernel TLS */
 const char* Cflag;    /* Public cert file */
 const char* Kflag;    /* Private key file */
 const char* oflag;    /* OCSP stapling file */
@@ -189,7 +188,7 @@ int main(int argc, char* argv[]) {
 
     signal(SIGPIPE, SIG_IGN);
 
-    while ((ch = getopt_long(argc, argv, "46C:cDde:FH:hI:i:jK:klM:m:NnO:o:P:p:R:rs:T:UuvW:w:X:x:Z:z", long_options,
+    while ((ch = getopt_long(argc, argv, "46C:cDde:FH:hI:i:jK:lM:m:NnO:o:P:p:R:rs:T:UuvW:w:X:x:Z:z", long_options,
                              &option_index)) != -1) {
         switch (ch) {
             case 1001:
@@ -332,10 +331,6 @@ int main(int argc, char* argv[]) {
                 break;
             case 'K':
                 Kflag = optarg;
-                break;
-            case 'k':
-                ktls = 1;
-                usetls = 1;
                 break;
             case 'l':
                 lflag = 1;
@@ -497,6 +492,8 @@ int main(int argc, char* argv[]) {
         errx(1, "must use -l with --keep-open");
     if (uflag && usetls && !dtls)
         errx(1, "cannot use -c and -u");
+    if (uflag && dtls && keepopen)
+        errx(1, "--dtls cannot be used with --keep-open");
     if (spliceflag && (usetls || uflag || zflag || Fflag))
         errx(1, "cannot use --splice with TLS, UDP, port scanning or FD passing");
     if ((family == AF_UNIX) && usetls)
@@ -592,8 +589,6 @@ int main(int argc, char* argv[]) {
         if ((tls_cfg = tls_config_new()) == NULL)
             errx(1, "unable to allocate TLS config");
         if (dtls && tls_config_set_dgram(tls_cfg, 1) == -1)
-            errx(1, "%s", tls_config_error(tls_cfg));
-        if (ktls && tls_config_set_ktls(tls_cfg, 1) == -1)
             errx(1, "%s", tls_config_error(tls_cfg));
         if (Rflag && tls_config_set_ca_file(tls_cfg, Rflag) == -1)
             errx(1, "%s", tls_config_error(tls_cfg));
@@ -709,7 +704,20 @@ int main(int argc, char* argv[]) {
                 if (vflag)
                     report_sock("Connection received", (struct sockaddr*)&z, len, family == AF_UNIX ? host : NULL);
 
-                do_readwrite(s, NULL);
+                if (usetls) {
+                    struct tls* tls_cctx = NULL;
+                    if ((tls_cctx = tls_setup_server(tls_ctx, s, host)))
+                        do_readwrite(s, tls_cctx);
+                    if (!tls_cctx)
+                        do_readwrite(s, NULL);
+                    if (tls_cctx) {
+                        timeout_tls(s, tls_cctx, tls_close);
+                        tls_free(tls_cctx);
+                    }
+                }
+                else {
+                    do_readwrite(s, NULL);
+                }
             }
             else {
                 struct tls* tls_cctx = NULL;

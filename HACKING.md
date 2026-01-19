@@ -1,6 +1,6 @@
 # Hacking on Netcat 2.0
 
-Welcome to the development guide for Netcat 2.0. This modern iteration transforms the classic tool into a high-performance, stealth-capable network utility using advanced Linux features like `io_uring`, `eBPF`, and `KTLS`.
+Welcome to the development guide for Netcat 2.0. This modern iteration transforms the classic tool into a high-performance, stealth-capable network utility using advanced Linux features like `io_uring` and `eBPF`.
 
 ## 1. Build System & Dependencies
 

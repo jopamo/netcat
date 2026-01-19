@@ -94,7 +94,6 @@ void help(void) {
             "  -l                         Listen mode, for inbound connects\n"
             "      --keep-open            Accept multiple connections in listen mode\n"
             "  -u                         UDP mode\n"
-            "  -k                         Use kernel TLS (KTLS)\n"
             "  -c                         Use TLS\n"
             "  -C <certfile>              Public key file\n"
             "  -K <keyfile>               Private key file\n"

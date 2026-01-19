@@ -87,11 +87,9 @@ It can open TCP connections, send UDP packets, listen on arbitrary
 TCP and UDP ports, do port scanning, and deal with both IPv4 and
 IPv6.
 Unlike
-.Xr telnet 1 ,
 .Nm
 scripts nicely, and separates error messages onto standard error instead
 of sending them to standard output, as
-.Xr telnet 1
 does with some.
 .Pp
 Common uses include:
@@ -219,12 +217,6 @@ Load the TLS private key from
 in PEM format.
 Requires
 .Fl c .
-.It Fl k
-Enable **Kernel TLS** (KTLS) offload.
-This attempts to use `ULP_KTLS` to handle encryption in the kernel, improving performance.
-Requires
-.Fl c
-or implies it.
 .It Fl -keep-open
 When a connection is completed, listen for another one.
 Requires

